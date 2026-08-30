@@ -1,0 +1,25 @@
+{
+  "name": "fifoo-game-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "check": "find src test -name '*.js' -print0 | xargs -0 -n1 node --check",
+    "test": "node --test",
+    "migrate": "node src/migrate.js",
+    "seed:dev": "node src/dev/seedTestData.js",
+    "generate:daily": "node src/jobs/generateDailyPaths.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "pg": "^8.13.1",
+    "socket.io": "^4.8.1"
+  }
+}
