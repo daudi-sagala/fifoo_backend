@@ -1,18 +1,30 @@
 import pg from 'pg';
 import { config } from './config.js';
+import { logger } from './lib/logger.js';
 
 const { Pool } = pg;
 
+function sslConfiguration() {
+  if (!config.pgSSL) return false;
+  const ssl = { rejectUnauthorized: config.pgSSLRejectUnauthorized };
+  if (config.pgSSLCA) ssl.ca = config.pgSSLCA.replace(/\\n/g, '\n');
+  return ssl;
+}
+
 export const pool = new Pool({
   connectionString: config.databaseURL,
-  ssl: config.pgSSL ? { rejectUnauthorized: false } : false,
-  max: 20,
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 10_000,
+  ssl: sslConfiguration(),
+  max: config.pgPoolMax,
+  idleTimeoutMillis: config.pgIdleTimeoutMs,
+  connectionTimeoutMillis: config.pgConnectionTimeoutMs,
+  statement_timeout: config.pgStatementTimeoutMs,
+  idle_in_transaction_session_timeout: config.pgIdleTransactionTimeoutMs,
+  keepAlive: true,
+  application_name: 'fifoo-game-backend',
 });
 
 pool.on('error', (error) => {
-  console.error('PostgreSQL pool error', error);
+  logger.error('postgresql pool error', { error });
 });
 
 export async function withClient(work) {

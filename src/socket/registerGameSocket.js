@@ -1,4 +1,5 @@
 import { pool } from '../db.js';
+import { createTokenWindow } from '../http/rateLimit.js';
 import { config } from '../config.js';
 import { authenticateGameSocket } from '../auth.js';
 import { OUT, IN } from '../events.js';
@@ -43,6 +44,13 @@ import {
   setFeedPostSaved,
 } from '../services/socialHub.js';
 
+
+const mutationRateLimiter = createTokenWindow({
+  name: 'socket-mutation',
+  limit: config.socketMutationRateLimitPerMinute,
+  windowMs: 60_000,
+});
+
 function ackOnce(callback) {
   let used = false;
   return (value) => {
@@ -68,6 +76,14 @@ function emitSafeServerError(socket, error, requestID = null) {
 
 async function mutation(socket, io, event, envelope, callback, mutate, broadcast) {
   const ack = ackOnce(callback);
+  if (config.rateLimitEnabled) {
+    const subject = socket.data.authUserID ?? socket.handshake.address ?? socket.id;
+    const rate = mutationRateLimiter.consume(subject);
+    if (!rate.allowed) {
+      ack(failureAck(new GameError('rate_limited', 'Too many realtime mutations. Try again shortly.')));
+      return;
+    }
+  }
   const outcome = await runDayMutation({ socket, event, rawEnvelope: envelope, mutate });
   ack(outcome.ack);
 

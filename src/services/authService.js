@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { GameError } from '../lib/errors.js';
+import { sendPasswordResetEmail } from './emailService.js';
 import {
   hashOpaqueToken,
   hashPassword,
@@ -274,33 +275,7 @@ export async function createPasswordReset(client, email) {
 }
 
 export async function deliverPasswordReset(reset) {
-  if (!reset || !config.passwordResetDeliveryURL) return false;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.authVerifyTimeoutMs);
-  try {
-    const headers = { 'content-type': 'application/json' };
-    if (config.passwordResetDeliverySecret) {
-      headers.authorization = `Bearer ${config.passwordResetDeliverySecret}`;
-    }
-    const response = await fetch(config.passwordResetDeliveryURL, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        email: reset.email,
-        token: reset.token,
-        expiresAt: reset.expiresAt,
-        resetURL: `${config.passwordResetDeepLinkBase}?token=${encodeURIComponent(reset.token)}`,
-      }),
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error(`delivery returned ${response.status}`);
-    return true;
-  } catch (error) {
-    console.error('Password reset delivery failed', { message: error?.message ?? String(error) });
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
+  return sendPasswordResetEmail(reset);
 }
 
 export async function consumePasswordReset(client, { token, newPassword }) {

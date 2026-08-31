@@ -205,3 +205,48 @@ await generateDailyPathsForAllUsers({ mapDate });
 The temporary product rules are isolated in
 `src/rules/standardWeightLossDay.js`. Replacing those rules does not require
 rewriting route/pathfinding code.
+
+## Aug. 29, 2026 rich demo Day Map
+
+For the seeded `demo.weightloss@fifoo.local` account, a richer full-day visual fixture is available via the `demo-aug29` rules set:
+
+```bash
+npm run seed:dev -- \
+  --date 2026-08-29 \
+  --rules demo-aug29 \
+  --current-time 15:45:53 \
+  --alternatives 2 \
+  --force-day
+```
+
+Edit `src/rules/demoWeightLossDayAug29.js` and replace the null values in
+`DEMO_AUG29_IMAGE_URLS` with durable HTTPS image URLs (Cloudinary `secure_url`
+values are recommended). Each stop also includes an `imageSearchHint` to make
+finding a representative image straightforward. Regenerate after changing URLs.
+
+---
+
+## Backend Integration Step 6 — production deployment
+
+The production deployment implementation is documented in:
+
+```text
+docs/BACKEND_INTEGRATION_STEP6_PRODUCTION_DEPLOYMENT.md
+```
+
+Step 6 adds:
+
+- Azure App Service deployment configuration with HTTPS-only/TLS 1.2+ settings;
+- Azure Key Vault secret references;
+- PostgreSQL server-certificate verification;
+- safe startup migrations with advisory locking + migration checksums;
+- Azure Communication Services password-reset email delivery;
+- Azure Monitor OpenTelemetry/Application Insights bootstrap;
+- structured/redacted JSON logging and request correlation IDs;
+- HTTP/auth/Socket.IO application throttles;
+- timezone-aware automatic daily-path generation in production;
+- GitHub Actions OIDC deployment;
+- Azure Bicep/App Service infrastructure configuration;
+- backup/restore, alerts, domain/TLS and production verification runbooks.
+
+Use `.env.production.example` as the non-secret environment contract. Do not create a real production `.env` file in the repository.

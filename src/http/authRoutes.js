@@ -16,8 +16,36 @@ import {
   verifyAccessToken,
 } from '../services/authService.js';
 import { config } from '../config.js';
+import { createRateLimiter, compositeAuthKey, clientIP } from './rateLimit.js';
+import { noStore } from './security.js';
 
 export const authRouter = express.Router();
+
+authRouter.use(noStore);
+
+const loginRateLimit = createRateLimiter({
+  name: 'auth-login',
+  limit: config.authLoginRateLimitPer15Minutes,
+  windowMs: 15 * 60_000,
+  keyGenerator: compositeAuthKey,
+  skip: () => !config.rateLimitEnabled,
+});
+
+const signupRateLimit = createRateLimiter({
+  name: 'auth-signup',
+  limit: config.authSignupRateLimitPerHour,
+  windowMs: 60 * 60_000,
+  keyGenerator: clientIP,
+  skip: () => !config.rateLimitEnabled,
+});
+
+const passwordResetRateLimit = createRateLimiter({
+  name: 'auth-password-reset',
+  limit: config.authPasswordResetRateLimitPerHour,
+  windowMs: 60 * 60_000,
+  keyGenerator: compositeAuthKey,
+  skip: () => !config.rateLimitEnabled,
+});
 
 let disconnectUserSockets = async () => {};
 
@@ -42,6 +70,7 @@ function statusFor(error) {
     case 'forbidden': return 403;
     case 'not_found': return 404;
     case 'conflict': return 409;
+    case 'rate_limited': return 429;
     default: return 500;
   }
 }
@@ -56,7 +85,7 @@ async function requireHTTPUser(req) {
   return withClient((client) => verifyAccessToken(client, token));
 }
 
-authRouter.post('/signup', asyncRoute(async (req, res) => {
+authRouter.post('/signup', signupRateLimit, asyncRoute(async (req, res) => {
   const deviceID = String(req.body?.deviceID ?? '').trim();
   if (!deviceID) throw new GameError('invalid_payload', 'deviceID is required.');
 
@@ -68,7 +97,7 @@ authRouter.post('/signup', asyncRoute(async (req, res) => {
   res.status(201).json(result);
 }));
 
-authRouter.post('/login', asyncRoute(async (req, res) => {
+authRouter.post('/login', loginRateLimit, asyncRoute(async (req, res) => {
   const deviceID = String(req.body?.deviceID ?? '').trim();
   if (!deviceID) throw new GameError('invalid_payload', 'deviceID is required.');
 
@@ -109,7 +138,7 @@ authRouter.post('/logout-all', asyncRoute(async (req, res) => {
   res.json({ success: true });
 }));
 
-authRouter.post('/password/forgot', asyncRoute(async (req, res) => {
+authRouter.post('/password/forgot', passwordResetRateLimit, asyncRoute(async (req, res) => {
   const reset = await withClient((client) => createPasswordReset(client, req.body?.email));
   if (reset) await deliverPasswordReset(reset);
   const response = {
@@ -122,7 +151,7 @@ authRouter.post('/password/forgot', asyncRoute(async (req, res) => {
   res.json(response);
 }));
 
-authRouter.post('/password/reset', asyncRoute(async (req, res) => {
+authRouter.post('/password/reset', passwordResetRateLimit, asyncRoute(async (req, res) => {
   const userID = await withTransaction((client) => consumePasswordReset(client, {
     token: req.body?.token,
     newPassword: req.body?.newPassword,

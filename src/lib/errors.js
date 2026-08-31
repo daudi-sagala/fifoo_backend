@@ -1,3 +1,5 @@
+import { logger } from './logger.js';
+
 export class GameError extends Error {
   constructor(code, message, details = undefined) {
     super(message);
@@ -9,7 +11,7 @@ export class GameError extends Error {
 
 export function asGameError(error) {
   if (error instanceof GameError) return error;
-  console.error(error);
+  logger.error('unhandled game error', { error });
   return new GameError('server_error', 'The server could not complete the request.');
 }
 
