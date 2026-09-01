@@ -85,6 +85,7 @@ function allocateWithinCategory(intervals, budget, { maxFastingPoints }) {
 
   // A category containing only fasting intervals remains capped on purpose;
   // the unused amount is redistributed globally by allocateDailyBudget.
+  //added for triggering rerun git
   return allocations.map(roundPoints);
 }
 
