@@ -29,8 +29,8 @@ param azureCommunicationEmailConnectionString string
 @secure()
 param databaseUrl string
 
-@description('App Service plan SKU. B1 is sufficient for the initial single-instance Fifoo production deployment.')
-param appServiceSku string = 'B1'
+@description('App Service plan SKU. P1v3 keeps Always On, deployment slots and scale-out available.')
+param appServiceSku string = 'P1v3'
 
 @description('App Service plan worker count. Keep at 1 until the Socket.IO Redis adapter is enabled.')
 @minValue(1)

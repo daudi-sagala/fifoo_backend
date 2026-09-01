@@ -1,6 +1,6 @@
-# Fifoo Game Backend — Backend Integration Step 3
+# Fifoo Game Backend — Continuous Routing & Progress Foundation
 
-Runnable Node.js 20 + Express + Socket.IO + PostgreSQL server for the validated Pass 5.37 iOS contract.
+Runnable Node.js 22+ + Express + Socket.IO + PostgreSQL server for the validated Pass 5.37 iOS contract.
 
 ## What is implemented
 
@@ -21,6 +21,11 @@ Runnable Node.js 20 + Express + Socket.IO + PostgreSQL server for the validated 
 - Debounced server search results.
 - Full Fifoo Play workout/exercise lifecycle persistence, live messages and reactions.
 - Health/readiness HTTP endpoints.
+- Continuous Day Graph intervals covering exactly `[00:00:00, 24:00:00)`.
+- Fasting/sleep/free-time filler nodes with metabolic context and no temporal gaps.
+- Versioned 100-point progress budgets and append-only progress-ledger outcomes.
+- Deterministic beam-search routing with hard constraints, diverse alternatives,
+  and population/cohort/individual cold-start probability blending.
 
 ## 1. Database
 
@@ -35,6 +40,10 @@ psql "$DATABASE_URL" -f sql/001_step3_game_backend.sql
 ```
 
 The migration is additive. It does not replace `day_maps`, `day_map_nodes`, `activities`, `tasks`, `workouts`, `posts`, etc.
+
+`npm run migrate` now also applies `sql/005_day_graph_progress_routing.sql`.
+That migration adds the algorithm read/write model while preserving the current
+iOS node and route payloads.
 
 ### Development dummy user
 
@@ -205,6 +214,29 @@ await generateDailyPathsForAllUsers({ mapDate });
 The temporary product rules are isolated in
 `src/rules/standardWeightLossDay.js`. Replacing those rules does not require
 rewriting route/pathfinding code.
+
+## Routing and progress algorithms v1
+
+The implementation is split into pure, independently testable layers:
+
+- `src/algorithms/dayGraph.js` compiles interval nodes, generates filler nodes,
+  splits intervals at exact seconds, and enforces connected branch invariants.
+- `src/algorithms/progressEngine.js` allocates exactly 100 value-weighted points,
+  caps fasting rewards, evaluates partial/binary/composite outcomes, and
+  calculates actual plus expected end-of-day progress.
+- `src/algorithms/routingEngine.js` performs hard-constraint filtering and beam
+  search, scores complete routes, diversifies alternatives, and blends
+  population/cohort/individual completion probabilities by confidence.
+- `src/services/dayPlanning.js` persists versioned graph plans and progress-ledger
+  outcomes. Activity complete/skip socket mutations now update the ledger and
+  `day_maps.current_progress` in the same authoritative transaction.
+
+The existing `day_map_routes.route_data` remains compatible with the current
+iOS build. The richer branch graph is stored alongside it and can be exposed in
+a later socket-contract revision.
+
+See `docs/ROUTING_PROGRESS_ALGORITHMS_V1.md` for invariants, scoring behavior,
+schema details, and the next implementation stage.
 
 ## Aug. 29, 2026 rich demo Day Map
 

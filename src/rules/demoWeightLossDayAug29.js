@@ -116,7 +116,7 @@ export function demoWeightLossDayAug29Rules() {
         imageSearchHint: 'full body strength training dumbbells gym',
       },
       {
-        key: 'cooldown', kind: 'task', start: '19:00', durationMinutes: 15, progressPercent: 61,
+        key: 'cooldown', kind: 'task', start: '19:10', durationMinutes: 15, progressPercent: 61,
         title: 'Cool down + hydrate', location: 'Gym or Home',
         description: 'Bring the heart rate down, drink water, and log the completed workout.',
         imageURL: DEMO_AUG29_IMAGE_URLS.cooldown,

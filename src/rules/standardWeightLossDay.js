@@ -5,12 +5,20 @@
  * file later with personalization, goals, preferences, availability, medical
  * constraints, work schedules, etc. The generator only consumes this plan.
  */
-export const STANDARD_WEIGHT_LOSS_DAY_VERSION = 1;
+export const STANDARD_WEIGHT_LOSS_DAY_VERSION = 2;
 
 export function standardWeightLossDayRules() {
   return {
     name: 'standard-weight-loss-day',
     version: STANDARD_WEIGHT_LOSS_DAY_VERSION,
+    categoryBudgets: {
+      nutrition: 35,
+      exercise: 25,
+      movement: 10,
+      recovery: 15,
+      habits: 10,
+      other: 5,
+    },
     stops: [
       {
         key: 'morning-check-in',
@@ -18,6 +26,9 @@ export function standardWeightLossDayRules() {
         start: '07:00',
         durationMinutes: 15,
         progressPercent: 5,
+        progressCategory: 'habits',
+        progressWeightHint: 4,
+        completionEvaluator: { type: 'binary' },
         title: 'Morning check-in + water',
         location: 'Home',
         description: 'Log the morning, drink water, and set one simple intention for the day.',
@@ -28,6 +39,9 @@ export function standardWeightLossDayRules() {
         start: '07:30',
         durationMinutes: 25,
         progressPercent: 12,
+        progressCategory: 'nutrition',
+        progressWeightHint: 12,
+        completionEvaluator: { type: 'mealComposite' },
         title: 'Protein-rich breakfast',
         location: 'Home',
         description: 'Start with a filling breakfast built around protein, fiber, and a reasonable portion.',
@@ -39,6 +53,9 @@ export function standardWeightLossDayRules() {
         start: '10:00',
         durationMinutes: 20,
         progressPercent: 21,
+        progressCategory: 'movement',
+        progressWeightHint: 10,
+        completionEvaluator: { type: 'duration', plannedSeconds: 1_200 },
         title: 'Brisk walk',
         location: 'Neighborhood',
         description: 'A short brisk walk to add movement without making the day feel workout-heavy.',
@@ -51,6 +68,9 @@ export function standardWeightLossDayRules() {
         start: '12:30',
         durationMinutes: 30,
         progressPercent: 29,
+        progressCategory: 'nutrition',
+        progressWeightHint: 12,
+        completionEvaluator: { type: 'mealComposite' },
         title: 'Balanced lunch',
         location: 'Home or Work',
         description: 'A balanced lunch with lean protein, vegetables, and a measured starch or whole grain.',
@@ -62,6 +82,9 @@ export function standardWeightLossDayRules() {
         start: '15:30',
         durationMinutes: 10,
         progressPercent: 34,
+        progressCategory: 'habits',
+        progressWeightHint: 6,
+        completionEvaluator: { type: 'binary' },
         title: 'Hydration + movement reset',
         location: 'Wherever you are',
         description: 'Water, a few minutes of movement, and a quick check before the late-afternoon hunger window.',
@@ -72,6 +95,9 @@ export function standardWeightLossDayRules() {
         start: '17:30',
         durationMinutes: 30,
         progressPercent: 49,
+        progressCategory: 'exercise',
+        progressWeightHint: 25,
+        completionEvaluator: { type: 'duration', plannedSeconds: 1_800 },
         title: 'Full-body strength',
         location: 'Gym or Home',
         description: 'A beginner-friendly full-body strength session focused on consistency and preserving lean mass.',
@@ -84,6 +110,9 @@ export function standardWeightLossDayRules() {
         start: '19:00',
         durationMinutes: 35,
         progressPercent: 57,
+        progressCategory: 'nutrition',
+        progressWeightHint: 12,
+        completionEvaluator: { type: 'mealComposite' },
         title: 'Balanced dinner',
         location: 'Home',
         description: 'A satisfying dinner centered on protein and vegetables with portions planned before eating.',
@@ -95,6 +124,9 @@ export function standardWeightLossDayRules() {
         start: '21:00',
         durationMinutes: 15,
         progressPercent: 64,
+        progressCategory: 'habits',
+        progressWeightHint: 4,
+        completionEvaluator: { type: 'binary' },
         title: 'Prep tomorrow + close the kitchen',
         location: 'Home',
         description: 'Prepare one thing for tomorrow and create a clear end to eating for the day.',

@@ -68,3 +68,18 @@ test('generated routing anchors preserve node coordinates while using nearest ve
   assert.equal(breakfast.anchor.coordinate.progress.percent, 12);
   assert.equal(breakfast.anchor.roadLocation.edge.edgeID.rawValue, 'street.v.c01.r05-06');
 });
+
+test('standard generation also produces a continuous 100-point Day Graph', () => {
+  const plan = buildStandardWeightLossDay({ userID, mapDate: '2026-08-29' });
+  const intervals = plan.dayGraph.chosenPath.intervals;
+  assert.equal(intervals[0].startSecond, 0);
+  assert.equal(intervals.at(-1).endSecond, 86_400);
+  assert.equal(
+    intervals.reduce((duration, interval) => duration + interval.endSecond - interval.startSecond, 0),
+    86_400,
+  );
+  assert.ok(Math.abs(
+    intervals.reduce((points, interval) => points + interval.potentialPoints, 0) - 100,
+  ) < 0.000001);
+  assert.ok(intervals.some((interval) => interval.intervalKind === 'fasting'));
+});

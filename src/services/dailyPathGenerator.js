@@ -7,6 +7,9 @@ import { persistNode } from './nodes.js';
 import { generateBackendRouteState } from './routes.js';
 import { gridRouteAnchorForNode, makeGridRoadGraph } from './gridRoadGraph.js';
 import { standardWeightLossDayRules } from '../rules/standardWeightLossDay.js';
+import { compileContinuousDay } from '../algorithms/dayGraph.js';
+import { allocateDailyBudget } from '../algorithms/progressEngine.js';
+import { activeDayPlanExists, persistCompiledDayPlan } from './dayPlanning.js';
 
 function hashRules(rules) {
   return crypto.createHash('sha256').update(JSON.stringify(rules)).digest('hex');
@@ -205,10 +208,62 @@ export function buildStandardWeightLossDay({ userID, mapDate, rules = standardWe
 
   const generated = rules.stops.map((stop) => buildGeneratedDayNode({ userID, mapDate: validatedMapDate, rules, stop }));
   generated.sort((a, b) => a.node.time.secondsFromMidnight - b.node.time.secondsFromMidnight);
+  const entriesByKey = new Map(generated.map((entry) => [entry.key, entry]));
+  const scheduledIntervals = rules.stops.map((stop) => {
+    const entry = entriesByKey.get(stop.key);
+    const startSecond = entry.node.time.secondsFromMidnight;
+    const endSecond = Math.min(
+      86_400,
+      startSecond + Math.max(1, Math.trunc(Number(stop.durationMinutes ?? 0) * 60)),
+    );
+    return {
+      key: stop.key,
+      candidateKey: stop.key,
+      sourceNodeID: entry.nodeID,
+      intervalKind: stop.kind,
+      startSecond,
+      endSecond,
+      progressCategory: stop.progressCategory,
+      progressWeightHint: stop.progressWeightHint,
+      completionEvaluator: stop.completionEvaluator ?? (
+        stop.kind === 'workout'
+          ? { type: 'duration', plannedSeconds: endSecond - startSecond }
+          : { type: 'binary' }
+      ),
+      metabolicContext: stop.kind === 'meal' ? 'fed' : null,
+      metadata: {
+        title: stop.title,
+        location: stop.location ?? '',
+        generatorStop: true,
+      },
+    };
+  });
+  const continuousPath = compileContinuousDay({
+    scheduledIntervals,
+    idSeed: `${rules.name}:v${rules.version}:${userID}:${validatedMapDate}`,
+    pathKey: 'chosen',
+    pathKind: 'chosen',
+    context: rules.dayContext ?? {},
+  });
+  continuousPath.intervals = allocateDailyBudget(continuousPath.intervals, {
+    categoryBudgets: rules.categoryBudgets,
+  });
+  continuousPath.routeScore = null;
+  continuousPath.expectedProgress = continuousPath.intervals.reduce((total, interval) => (
+    total + Number(interval.potentialPoints ?? 0) * Number(
+      interval.metadata?.completionProbability
+        ?? (interval.intervalKind === 'freeTime' ? 0 : 0.65),
+    )
+  ), 0);
   return {
     rules,
     rulesHash: hashRules(rules),
     nodes: generated,
+    dayGraph: {
+      schema: 'fifoo.day-graph.v1',
+      chosenPath: continuousPath,
+      alternativeBranches: [],
+    },
   };
 }
 
@@ -270,7 +325,8 @@ export async function generateDailyPathForUser(client, {
       && prior.generator_name === rules.name
       && Number(prior.generator_version) === Number(rules.version)
       && prior.rules_hash === plan.rulesHash
-      && await generatedNodesStillExist(client, dayMap.day_map_id, newNodeIDs)) {
+      && await generatedNodesStillExist(client, dayMap.day_map_id, newNodeIDs)
+      && await activeDayPlanExists(client, dayMap.day_map_id, plan.rulesHash)) {
     return {
       generated: false,
       reason: 'already_generated',
@@ -317,6 +373,27 @@ export async function generateDailyPathForUser(client, {
     },
   });
 
+  const dayPlan = await persistCompiledDayPlan(client, {
+    dayMap,
+    userID: id,
+    mapDate: validatedMapDate,
+    algorithmName: 'fifoo-deterministic-day-planner',
+    algorithmVersion: 1,
+    rulesHash: plan.rulesHash,
+    chosenPath: plan.dayGraph.chosenPath,
+    alternativeBranches: plan.dayGraph.alternativeBranches,
+    routingContext: {
+      mode: 'cold-start',
+      timeZoneIdentifier: validatedTimeZone,
+      populationPriorFallback: 0.65,
+    },
+    decisionSummary: {
+      generatedStopCount: plan.nodes.length,
+      fullDayIntervalCount: plan.dayGraph.chosenPath.intervals.length,
+      expectedProgress: plan.dayGraph.chosenPath.expectedProgress,
+    },
+  });
+
   await client.query(
     `INSERT INTO day_map_generation_runs(
        day_map_id,user_id,generator_name,generator_version,rules_hash,generated_node_ids,generated_at,updated_at
@@ -342,6 +419,7 @@ export async function generateDailyPathForUser(client, {
     generatedNodeIDs: newNodeIDs,
     nodes: persistedNodes,
     routeState: routeResult.routeState,
+    dayPlan,
     rules: { name: rules.name, version: rules.version, hash: plan.rulesHash },
   };
 }

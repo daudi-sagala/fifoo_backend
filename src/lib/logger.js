@@ -1,7 +1,13 @@
-import { config } from '../config.js';
-
 const LEVELS = Object.freeze({ debug: 10, info: 20, warn: 30, error: 40 });
-const threshold = LEVELS[config.logLevel] ?? LEVELS.info;
+
+// Keep the logger independent from the fully validated runtime configuration.
+// GameError is used by pure routing/progress modules and their unit tests; making
+// it import config (and therefore dotenv/DATABASE_URL) coupled deterministic
+// domain logic to production bootstrapping.
+const configuredLevel = String(process.env.LOG_LEVEL ?? (
+  process.env.NODE_ENV === 'production' ? 'info' : 'debug'
+)).toLowerCase();
+const threshold = LEVELS[configuredLevel] ?? LEVELS.info;
 
 function sanitize(value, depth = 0) {
   if (depth > 5) return '[truncated]';
@@ -10,7 +16,7 @@ function sanitize(value, depth = 0) {
     return {
       name: value.name,
       message: value.message,
-      stack: config.nodeEnv === 'production' ? undefined : value.stack,
+      stack: process.env.NODE_ENV === 'production' ? undefined : value.stack,
     };
   }
   if (Array.isArray(value)) return value.slice(0, 50).map((item) => sanitize(item, depth + 1));

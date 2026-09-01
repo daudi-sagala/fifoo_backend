@@ -1,6 +1,6 @@
 {
   "name": "fifoo-game-backend",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,7 +20,6 @@
     "@azure/identity": "^4.13.2",
     "@azure/monitor-opentelemetry": "^1.19.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "pg": "^8.13.1",
     "socket.io": "^4.8.1"

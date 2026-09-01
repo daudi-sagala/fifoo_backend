@@ -43,6 +43,7 @@ import {
   createFeedPostReply,
   setFeedPostSaved,
 } from '../services/socialHub.js';
+import { recordNodeProgressOutcome } from '../services/dayPlanning.js';
 
 
 const mutationRateLimiter = createTokenWindow({
@@ -122,6 +123,27 @@ function registerMutation(socket, io, event, mutate, broadcast) {
 
 async function emitNode(io, room, result) {
   io.to(room).emit(IN.nodeUpserted, { node: result.node, revision: result.revision });
+}
+
+async function persistActivityMutationWithProgress({
+  client,
+  dayMap,
+  userID,
+  context,
+  payload,
+}) {
+  const action = payload.action;
+  const node = withActivityStatus(payload.node, action);
+  const result = await persistActivityNode(client, { dayMap, userID, context, node });
+  const progress = await recordNodeProgressOutcome(client, {
+    dayMap,
+    userID,
+    nodeID: result.nodeID,
+    action,
+    nowSecond: Number(dayMap.current_time_seconds ?? 0),
+    evidence: { source: 'socket-activity-mutation' },
+  });
+  return { ...result, progressSnapshot: progress?.progressSnapshot ?? null };
 }
 
 export function registerGameSocket(io) {
@@ -230,9 +252,7 @@ export function registerGameSocket(io) {
 
     for (const event of [OUT.activityJoin, OUT.activitySkip, OUT.activityComplete]) {
       registerMutation(socket, io, event,
-        ({ client, dayMap, userID, context, payload }) => persistActivityNode(client, {
-          dayMap, userID, context, node: withActivityStatus(payload.node, payload.action),
-        }),
+        persistActivityMutationWithProgress,
         ({ io, room, result }) => emitNode(io, room, result));
     }
 
@@ -244,9 +264,7 @@ export function registerGameSocket(io) {
 
     for (const event of [OUT.activityTaskSkip, OUT.activityTaskComplete]) {
       registerMutation(socket, io, event,
-        ({ client, dayMap, userID, context, payload }) => persistActivityNode(client, {
-          dayMap, userID, context, node: withActivityStatus(payload.node, payload.action),
-        }),
+        persistActivityMutationWithProgress,
         ({ io, room, result }) => emitNode(io, room, result));
     }
 
@@ -255,16 +273,23 @@ export function registerGameSocket(io) {
       ({ io, room, result }) => emitNode(io, room, result));
 
     registerMutation(socket, io, OUT.activityMealComplete,
-      ({ client, dayMap, userID, context, payload }) => persistActivityNode(client, {
-        dayMap, userID, context, node: withActivityStatus(payload.node, payload.action),
-      }),
+      persistActivityMutationWithProgress,
       ({ io, room, result }) => emitNode(io, room, result));
 
     registerMutation(socket, io, OUT.activityMealSkip,
       async ({ client, dayMap, userID, context, payload }) => {
         const skippedNode = withActivityStatus(payload.node, payload.action ?? 'skip');
-        await persistActivityNode(client, { dayMap, userID, context, node: skippedNode });
-        return deleteNode(client, { dayMap, nodeID: skippedNode?.id });
+        const persisted = await persistActivityNode(client, { dayMap, userID, context, node: skippedNode });
+        const progress = await recordNodeProgressOutcome(client, {
+          dayMap,
+          userID,
+          nodeID: persisted.nodeID,
+          action: payload.action ?? 'skip',
+          nowSecond: Number(dayMap.current_time_seconds ?? 0),
+          evidence: { source: 'socket-activity-meal-skip' },
+        });
+        const deleted = await deleteNode(client, { dayMap, nodeID: skippedNode?.id });
+        return { ...deleted, progressSnapshot: progress?.progressSnapshot ?? null };
       },
       async ({ io, room, result }) => io.to(room).emit(IN.nodeDeleted, { nodeID: { rawValue: result.nodeID }, revision: result.revision }));
 

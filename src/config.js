@@ -1,5 +1,12 @@
-import 'dotenv/config';
 import { validateRuntimeConfig } from './lib/runtimeConfig.js';
+
+// Node 22+ provides native .env loading. Ignore a missing local file because
+// production injects environment variables through Azure Container Apps.
+try {
+  process.loadEnvFile?.();
+} catch (error) {
+  if (error?.code !== 'ENOENT') throw error;
+}
 
 function boolEnv(name, fallback = false) {
   const raw = process.env[name];
