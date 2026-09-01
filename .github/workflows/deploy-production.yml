@@ -1,38 +1,4 @@
-name: Trigger auto deployment for fifoo-game-api-prod
-
-# When this action will be executed
-on:
-  # Automatically trigger it when detected changes in repo
-  push:
-    branches: 
-      [ main ]
-    paths:
-    - '**'
-    - '.github/workflows/fifoo-game-api-prod-AutoDeployTrigger-2a3a3218-7918-4ae0-8adc-2f08f0be3494.yml'
-
-  # Allow manual trigger 
-  workflow_dispatch:      
-
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
-    permissions: 
-      id-token: write #This is required for requesting the OIDC JWT Token
-      contents: read #Required when GH token is used to authenticate with private repo
-
-    steps:
-      - name: Checkout to the branch
-        uses: actions/checkout@v2
-
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.FIFOOGAMEAPIPROD_AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.FIFOOGAMEAPIPROD_AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.FIFOOGAMEAPIPROD_AZURE_SUBSCRIPTION_ID }}
-
-      - name: Build and push container image to registry
-        name: Deploy Fifoo backend production
+name: Deploy Fifoo backend production
 
 on:
   workflow_dispatch:
@@ -90,16 +56,12 @@ jobs:
         with:
           appSourcePath: ${{ github.workspace }}
           dockerfilePath: Dockerfile
-
           acrName: fifooprodregistry01
           acrUsername: ${{ secrets.FIFOOGAMEAPIPROD_REGISTRY_USERNAME }}
           acrPassword: ${{ secrets.FIFOOGAMEAPIPROD_REGISTRY_PASSWORD }}
-
           imageToBuild: fifooprodregistry01.azurecr.io/fifoo-game-api-prod:${{ github.sha }}
-
           containerAppName: fifoo-game-api-prod
           resourceGroup: fifoo-production
-
           targetPort: 3000
           ingress: external
           disableTelemetry: true
