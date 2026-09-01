@@ -67,10 +67,19 @@ jobs:
           disableTelemetry: true
 
       - name: Verify production readiness
-        env:
-          API_BASE_URL: https://api.fifoo.ai
         run: |
           set -euo pipefail
+        
+          FQDN="$(
+            az containerapp show \
+              --name fifoo-game-api-prod \
+              --resource-group fifoo-production \
+              --query properties.configuration.ingress.fqdn \
+              --output tsv
+          )"
+        
+          API_BASE_URL="https://${FQDN}"
+          echo "Verifying ${API_BASE_URL}"
 
           for attempt in $(seq 1 30); do
             code="$(
@@ -92,5 +101,7 @@ jobs:
             sleep 10
           done
 
-          cat /tmp/ready.out || true
+          if [ -f /tmp/ready.out ]; then
+            cat /tmp/ready.out
+          fi
           exit 1
