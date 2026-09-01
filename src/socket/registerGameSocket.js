@@ -43,7 +43,7 @@ import {
   createFeedPostReply,
   setFeedPostSaved,
 } from '../services/socialHub.js';
-import { recordNodeProgressOutcome } from '../services/dayPlanning.js';
+import { recordNodeProgressOutcome, rerouteFutureDayPlan } from '../services/dayPlanning.js';
 
 
 const mutationRateLimiter = createTokenWindow({
@@ -334,6 +334,31 @@ export function registerGameSocket(io) {
     registerMutation(socket, io, OUT.routeBuild,
       ({ client, dayMap, payload }) => generateBackendRouteState(client, { dayMap, payload }),
       async ({ io, room, result }) => io.to(room).emit(IN.routeState, { routeState: result.routeState, revision: result.revision }));
+
+    // Opt-in v2 planning event. It publishes the richer Day Graph separately;
+    // the established game:route:state payload remains byte-for-byte compatible.
+    registerMutation(socket, io, OUT.routeReroute,
+      ({ client, dayMap, userID, context, payload }) => rerouteFutureDayPlan(client, {
+        dayMap,
+        userID,
+        mapDate: context.mapDate,
+        decisionSecond: Number(
+          payload.currentDayTime?.secondsFromMidnight
+            ?? payload.decisionSecond
+            ?? dayMap.current_time_seconds,
+        ),
+        candidates: payload.candidates,
+        boundaryOutcome: payload.boundaryOutcome ?? null,
+        rerouteReason: payload.reason ?? 'context_changed',
+        routingContext: payload.routingContext ?? {},
+        alternativeCount: payload.maxAlternatives ?? 2,
+      }),
+      async ({ io, room, result }) => io.to(room).emit(IN.dayPlanState, {
+        dayPlan: result.dayPlan,
+        progressSnapshot: result.progressSnapshot,
+        planRevision: result.planRevision,
+        revision: result.revision,
+      }));
 
     registerMutation(socket, io, OUT.routeAttachNode,
       async ({ client, dayMap, userID, context, payload }) => {

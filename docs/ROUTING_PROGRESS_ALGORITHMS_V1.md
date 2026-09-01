@@ -96,10 +96,10 @@ The active plan is versioned and the previous plan becomes `superseded`.
   update `day_maps.current_progress` transactionally.
 - Existing iOS clients continue decoding the same route and node payloads.
 
-## Next implementation stage
+## Future-only rerouting (implemented)
 
-The next stage should preserve the completed prefix and ledger while rerouting
-only the future suffix. It will:
+The second stage preserves the completed prefix and ledger while rerouting only
+the future suffix. It now:
 
 1. split the active interval at the exact decision second;
 2. freeze completed intervals and their ledger results;
@@ -107,10 +107,13 @@ only the future suffix. It will:
 4. beam-search only the remaining candidate window;
 5. emit chosen plus two diverse content-level branches;
 6. supersede only future intervals removed by the system;
-7. add a socket-contract extension so iOS renders algorithmic branch stops,
-   not merely alternate road geometry;
-8. log candidate impressions, predictions, selections, skips, delays, and
-   outcomes for later offline evaluation and model training.
+7. exposes an opt-in socket-contract extension without changing legacy route
+   state;
+8. records reroute decisions and interval lineage for later evaluation.
+
+See `FUTURE_ONLY_REROUTING_V1.md` for the exact boundary and persistence
+contract. Full impression/selection/delay instrumentation remains the next
+learning-data phase.
 
 ## Verification
 

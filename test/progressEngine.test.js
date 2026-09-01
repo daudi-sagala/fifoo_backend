@@ -70,3 +70,18 @@ test('skipped work remains in the denominator while superseded work creates no p
   assert.equal(superseded.status, 'superseded');
 });
 
+test('a rerouted suffix receives exactly the remaining progress budget', () => {
+  const path = compileContinuousDay({
+    idSeed: 'remaining-budget',
+    scheduledIntervals: [
+      { key: 'walk', kind: 'movement', startSecond: 17 * 3600, endSecond: 17.5 * 3600, progressWeightHint: 5 },
+      { key: 'dinner', kind: 'meal', startSecond: 19 * 3600, endSecond: 19.5 * 3600, progressWeightHint: 8 },
+    ],
+  });
+  const allocated = allocateDailyBudget(path.intervals, { totalPoints: 37.25 });
+  assert.equal(
+    allocated.reduce((total, interval) => total + interval.potentialPoints, 0),
+    37.25,
+  );
+  assert.equal(allocated.at(-1).plannedProgressEnd, 37.25);
+});

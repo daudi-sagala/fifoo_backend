@@ -34,7 +34,7 @@ function sum(values) {
   return values.reduce((total, value) => total + Number(value ?? 0), 0);
 }
 
-function normalizeCategoryBudgets(intervals, requested) {
+function normalizeCategoryBudgets(intervals, requested, totalPoints) {
   const configured = { ...DEFAULT_CATEGORY_BUDGETS, ...(requested ?? {}) };
   const activeCategories = [...new Set(
     intervals
@@ -54,7 +54,7 @@ function normalizeCategoryBudgets(intervals, requested) {
   }
   return Object.fromEntries(activeCategories.map((category) => [
     category,
-    DAILY_PROGRESS_POINTS * (weights[category] / denominator),
+    totalPoints * (weights[category] / denominator),
   ]));
 }
 
@@ -85,17 +85,17 @@ function allocateWithinCategory(intervals, budget, { maxFastingPoints }) {
 
   // A category containing only fasting intervals remains capped on purpose;
   // the unused amount is redistributed globally by allocateDailyBudget.
-  //added for triggering rerun git
   return allocations.map(roundPoints);
 }
 
 /**
- * Allocates exactly 100 achievement points by health category and relative
- * node value. Duration is deliberately not used as an allocation multiplier.
+ * Allocates exactly totalPoints achievement points by health category and
+ * relative node value. Duration is deliberately not used as a multiplier.
  */
 export function allocateDailyBudget(pathOrIntervals, {
   categoryBudgets = DEFAULT_CATEGORY_BUDGETS,
   maxFastingPoints = 4,
+  totalPoints = DAILY_PROGRESS_POINTS,
 } = {}) {
   const source = Array.isArray(pathOrIntervals)
     ? pathOrIntervals
@@ -104,8 +104,12 @@ export function allocateDailyBudget(pathOrIntervals, {
     throw new TypeError('A non-empty interval collection is required.');
   }
 
+  const requestedTotal = Math.max(0, Number(totalPoints));
+  if (!Number.isFinite(requestedTotal) || requestedTotal > DAILY_PROGRESS_POINTS) {
+    throw new RangeError('totalPoints must be between 0 and 100.');
+  }
   const intervals = source.map((interval) => ({ ...interval }));
-  const budgets = normalizeCategoryBudgets(intervals, categoryBudgets);
+  const budgets = normalizeCategoryBudgets(intervals, categoryBudgets, requestedTotal);
   const byCategory = new Map();
   intervals.forEach((interval, index) => {
     const category = String(interval.progressCategory ?? 'other');
@@ -124,7 +128,7 @@ export function allocateDailyBudget(pathOrIntervals, {
     entries.forEach((entry, index) => { points[entry.index] = allocated[index]; });
   }
 
-  let unallocated = DAILY_PROGRESS_POINTS - sum(points);
+  let unallocated = requestedTotal - sum(points);
   const recipients = intervals
     .map((interval, index) => ({ interval, index }))
     .filter(({ interval }) => Number(interval.progressWeightHint ?? 0) > 0 && interval.intervalKind !== 'fasting');
@@ -136,7 +140,7 @@ export function allocateDailyBudget(pathOrIntervals, {
   }
 
   const rounded = points.map(roundPoints);
-  const residual = roundPoints(DAILY_PROGRESS_POINTS - sum(rounded));
+  const residual = roundPoints(requestedTotal - sum(rounded));
   const residualIndex = [...intervals.keys()].reverse().find((index) => rounded[index] > 0) ?? intervals.length - 1;
   rounded[residualIndex] = roundPoints(rounded[residualIndex] + residual);
 

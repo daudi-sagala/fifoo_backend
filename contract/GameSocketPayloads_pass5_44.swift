@@ -547,6 +547,40 @@ nonisolated struct GameBackendRouteBuildPayload:
 }
 
 
+/// Opt-in content-level reroute request. Older clients continue using the
+/// unchanged GameBackendRouteBuildPayload and GameRouteStateServerPayload.
+nonisolated struct GameRouteRerouteCandidatePayload:
+    Codable,
+    Equatable,
+    Sendable {
+
+    let key: String
+    let decisionGroup: String
+    let kind: String
+    let required: Bool
+    let fixedStartSecond: Int?
+    let earliestStartSecond: Int?
+    let latestEndSecond: Int?
+    let durationSeconds: Int
+    let progressCategory: String
+    let progressWeightHint: Double
+    let goalImpact: Double?
+    let preferenceFit: Double?
+}
+
+
+nonisolated struct GameRouteReroutePayload:
+    Codable,
+    Equatable,
+    Sendable {
+
+    let currentDayTime: DayTime
+    let reason: String
+    let maxAlternatives: Int
+    let candidates: [GameRouteRerouteCandidatePayload]
+}
+
+
 nonisolated struct GameRouteAttachNodePayload:
     Codable,
     Equatable,

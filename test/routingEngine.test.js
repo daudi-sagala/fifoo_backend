@@ -4,7 +4,10 @@ import assert from 'node:assert/strict';
 import {
   blendCompletionProbability,
   optimizeDayRoutes,
+  optimizeFutureRoutes,
 } from '../src/algorithms/routingEngine.js';
+import { compileContinuousDay, validateDayGraph } from '../src/algorithms/dayGraph.js';
+import { allocateDailyBudget } from '../src/algorithms/progressEngine.js';
 
 test('cold-start probability shifts from population to cohort to individual with evidence', () => {
   const cold = blendCompletionProbability({ population: 0.6 });
@@ -68,3 +71,74 @@ test('beam search returns connected, diverse whole-day routes around hard constr
   assert.equal(result.predictionMode, 'cold-start');
 });
 
+test('future rerouting preserves history and optimizes only the remaining day', () => {
+  const currentPrimaryPath = compileContinuousDay({
+    idSeed: 'reroute-current',
+    scheduledIntervals: [
+      { key: 'breakfast', kind: 'meal', startSecond: 7 * 3600, endSecond: 7.5 * 3600, progressWeightHint: 10 },
+      { key: 'lunch', kind: 'meal', startSecond: 12 * 3600, endSecond: 12.5 * 3600, progressWeightHint: 10 },
+      { key: 'old-gym', kind: 'workout', startSecond: 17 * 3600, endSecond: 18 * 3600, progressWeightHint: 20 },
+      { key: 'dinner', kind: 'meal', startSecond: 19 * 3600, endSecond: 19.5 * 3600, progressWeightHint: 10 },
+    ],
+  });
+  currentPrimaryPath.intervals = allocateDailyBudget(currentPrimaryPath.intervals);
+  const decisionSecond = 14 * 3600 + 37 * 60 + 22;
+  const result = optimizeFutureRoutes({
+    currentPrimaryPath,
+    decisionSecond,
+    context: { idSeed: 'reroute-next', wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 },
+    candidates: [
+      {
+        key: 'walk', decisionGroup: 'exercise', kind: 'movement', required: true,
+        fixedStartSecond: 17 * 3600, durationMinutes: 30,
+        progressCategory: 'movement', progressWeightHint: 12,
+      },
+      {
+        key: 'home-workout', decisionGroup: 'exercise', kind: 'workout', required: true,
+        fixedStartSecond: 17 * 3600, durationMinutes: 40,
+        progressCategory: 'exercise', progressWeightHint: 18,
+      },
+      {
+        key: 'dinner', decisionGroup: 'dinner', kind: 'meal', required: true,
+        fixedStartSecond: 19 * 3600, durationMinutes: 30,
+        progressCategory: 'nutrition', progressWeightHint: 10,
+      },
+    ],
+    alternativeCount: 1,
+  });
+
+  assert.equal(result.completedPath.intervals[0].startSecond, 0);
+  assert.equal(result.completedPath.intervals.at(-1).endSecond, decisionSecond);
+  assert.equal(result.chosenPath.intervals[0].startSecond, decisionSecond);
+  assert.equal(result.chosenPath.intervals.at(-1).endSecond, 86_400);
+  assert.equal(result.chosenPath.intervals[0].plannedProgressStart, result.lockedPotentialPoints);
+  assert.equal(result.chosenPath.intervals.at(-1).plannedProgressEnd, 100);
+  assert.equal(result.lockedPotentialPoints + result.remainingPotentialPoints, 100);
+  assert.equal(
+    result.completedPath.intervals.reduce((total, interval) => total + interval.potentialPoints, 0)
+      + result.chosenPath.intervals.reduce((total, interval) => total + interval.potentialPoints, 0),
+    100,
+  );
+  assert.equal(
+    validateDayGraph({
+      completedPath: result.completedPath,
+      chosenPath: result.chosenPath,
+      alternativePaths: result.alternativeBranches,
+    }),
+    true,
+  );
+  assert.ok(result.chosenPath.selectedCandidateKeys.every((key) => key !== 'old-gym'));
+});
+
+test('future rerouting rejects a fixed candidate in elapsed time', () => {
+  const currentPrimaryPath = compileContinuousDay({ scheduledIntervals: [] });
+  currentPrimaryPath.intervals = allocateDailyBudget(currentPrimaryPath.intervals);
+  assert.throws(() => optimizeFutureRoutes({
+    currentPrimaryPath,
+    decisionSecond: 12 * 3600,
+    candidates: [{
+      key: 'past', kind: 'task', required: true,
+      fixedStartSecond: 11 * 3600, durationMinutes: 15,
+    }],
+  }), /before the reroute boundary/i);
+});

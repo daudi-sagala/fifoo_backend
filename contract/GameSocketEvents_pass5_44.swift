@@ -59,6 +59,7 @@ nonisolated enum GameSocketOutgoingEvent:
     // Routes
     case routeSelect = "game:route:select"
     case routeBuild = "game:route:build"
+    case routeReroute = "game:route:reroute"
     case routeAttachNode = "game:route:attach-node"
     case routeDraftUpdate = "game:route:draft:update"
     case routePreviewUpdate = "game:route:preview:update"
@@ -98,6 +99,7 @@ nonisolated enum GameSocketIncomingEvent:
     case nodeDeleted = "game:node:deleted"
     case tileRevealState = "game:tile:reveal:state"
     case routeState = "game:route:state"
+    case dayPlanState = "game:day-plan:state"
 
     // Search
     case searchResults = "game:search:results"

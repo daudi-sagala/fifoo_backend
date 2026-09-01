@@ -4,9 +4,12 @@ import assert from 'node:assert/strict';
 import {
   compileAlternativeBranches,
   compileContinuousDay,
+  freezePathAt,
   splitIntervalAt,
+  stitchPrimaryPaths,
   validateContinuousPath,
 } from '../src/algorithms/dayGraph.js';
+import { allocateDailyBudget } from '../src/algorithms/progressEngine.js';
 
 test('continuous day assigns exactly one interval to every second', () => {
   const path = compileContinuousDay({
@@ -78,4 +81,31 @@ test('overlapping primary intervals are rejected', () => {
       { key: 'b', kind: 'task', startSecond: 200, endSecond: 400 },
     ],
   }), /overlap/i);
+});
+
+test('future-only freeze splits at the exact second and locks value rather than duration', () => {
+  const path = compileContinuousDay({
+    idSeed: 'future-freeze',
+    scheduledIntervals: [
+      { key: 'breakfast', kind: 'meal', startSecond: 7 * 3600, endSecond: 7.5 * 3600, progressWeightHint: 10 },
+      { key: 'dinner', kind: 'meal', startSecond: 19 * 3600, endSecond: 19.5 * 3600, progressWeightHint: 10 },
+    ],
+  });
+  path.intervals = allocateDailyBudget(path.intervals);
+  const decisionSecond = 14 * 3600 + 37 * 60 + 22;
+  const original = path.intervals.find((interval) => (
+    interval.startSecond < decisionSecond && interval.endSecond > decisionSecond
+  ));
+  const frozen = freezePathAt(path, decisionSecond, { idSeed: 'future-freeze-r1' });
+
+  assert.equal(frozen.completedPath.intervals.at(-1).endSecond, decisionSecond);
+  assert.equal(frozen.supersededFuturePath.intervals[0].startSecond, decisionSecond);
+  assert.equal(frozen.completedPath.intervals.at(-1).potentialPoints, original.potentialPoints);
+  assert.equal(frozen.supersededFuturePath.intervals[0].potentialPoints, 0);
+  assert.equal(frozen.lockedPotentialPoints + frozen.remainingPotentialPoints, 100);
+  assert.equal(
+    stitchPrimaryPaths(frozen.completedPath, frozen.supersededFuturePath).intervals
+      .reduce((seconds, interval) => seconds + interval.endSecond - interval.startSecond, 0),
+    86_400,
+  );
 });

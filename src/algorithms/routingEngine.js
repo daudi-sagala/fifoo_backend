@@ -1,4 +1,11 @@
-import { compileAlternativeBranches, compileContinuousDay } from './dayGraph.js';
+import {
+  compileAlternativeBranches,
+  compileContinuousDay,
+  freezePathAt as freezePrimaryPath,
+  splitIntervalAt,
+  stitchPrimaryPaths,
+  validateDayGraph,
+} from './dayGraph.js';
 import { allocateDailyBudget } from './progressEngine.js';
 
 const DEFAULT_BEAM_WIDTH = 24;
@@ -286,7 +293,32 @@ function chooseDiverse(states, count, minimumDistance) {
   return selected;
 }
 
-function compileRoute(state, index, context, categoryBudgets) {
+function trimPathStart(path, startSecond, pathKey) {
+  if (startSecond === 0) return { ...path, pathKey };
+  const intervals = [];
+  for (const interval of path.intervals) {
+    if (interval.endSecond <= startSecond) continue;
+    if (interval.startSecond < startSecond) {
+      const [, right] = splitIntervalAt(interval, startSecond, {
+        idSeed: `${path.pathID}:future`,
+      });
+      intervals.push({ ...right, lifecycleStatus: 'planned' });
+    } else {
+      intervals.push({ ...interval, lifecycleStatus: 'planned' });
+    }
+  }
+  return {
+    ...path,
+    pathKey,
+    intervals,
+  };
+}
+
+function compileRoute(state, index, context, categoryBudgets, {
+  routeStartSecond = 0,
+  totalPoints = 100,
+  progressOffset = 0,
+} = {}) {
   const path = compileContinuousDay({
     scheduledIntervals: state.scheduled.map((candidate) => ({
       ...candidate,
@@ -307,16 +339,24 @@ function compileRoute(state, index, context, categoryBudgets) {
     pathKind: 'chosen',
     context,
   });
-  path.intervals = allocateDailyBudget(path.intervals, { categoryBudgets });
-  path.routeScore = state.score + finalRouteAdjustment(state);
-  path.expectedProgress = path.intervals.reduce((total, interval) => {
+  const futurePath = trimPathStart(path, routeStartSecond, path.pathKey);
+  futurePath.intervals = allocateDailyBudget(futurePath.intervals, {
+    categoryBudgets,
+    totalPoints,
+  }).map((interval) => ({
+    ...interval,
+    plannedProgressStart: interval.plannedProgressStart + progressOffset,
+    plannedProgressEnd: interval.plannedProgressEnd + progressOffset,
+  }));
+  futurePath.routeScore = state.score + finalRouteAdjustment(state);
+  futurePath.expectedProgress = futurePath.intervals.reduce((total, interval) => {
     const probability = interval.metadata?.completionProbability
       ?? (interval.potentialPoints > 0 ? 0.65 : 0);
     return total + interval.potentialPoints * clamp(probability);
   }, 0);
-  path.selectedCandidateKeys = state.scheduled.map((candidate) => candidate.key);
-  path.skippedDecisionGroups = state.skippedGroups;
-  return path;
+  futurePath.selectedCandidateKeys = state.scheduled.map((candidate) => candidate.key);
+  futurePath.skippedDecisionGroups = state.skippedGroups;
+  return futurePath;
 }
 
 /**
@@ -333,14 +373,42 @@ export function optimizeDayRoutes({
   routePoolSize = DEFAULT_ROUTE_POOL_SIZE,
   alternativeCount = 2,
   minimumAlternativeDistance = 0.20,
+  initialCursorSecond = 0,
+  totalPoints = 100,
+  progressOffset = 0,
+  completedPath = null,
 } = {}) {
   if (!Array.isArray(candidates) || !candidates.length) {
     throw new TypeError('candidates must be a non-empty array.');
   }
-  const normalized = candidates.map((candidate, index) => normalizedCandidate(candidate, index, context));
+  const routeStartSecond = Math.max(0, Math.min(86_399, Math.trunc(finite(initialCursorSecond))));
+  const eligibleCandidates = candidates
+    .map((candidate) => {
+      if (candidate.fixedStartSecond != null && Number(candidate.fixedStartSecond) < routeStartSecond) {
+        throw new RangeError(`Candidate ${candidate.key ?? 'unknown'} is fixed before the reroute boundary.`);
+      }
+      if (Number(candidate.latestEndSecond ?? 86_400) <= routeStartSecond) {
+        if (candidate.required === true) {
+          throw new RangeError(`Required candidate ${candidate.key ?? 'unknown'} ends before the reroute boundary.`);
+        }
+        return null;
+      }
+      return {
+        ...candidate,
+        earliestStartSecond: Math.max(
+          routeStartSecond,
+          Number(candidate.earliestStartSecond ?? candidate.fixedStartSecond ?? routeStartSecond),
+        ),
+      };
+    })
+    .filter(Boolean);
+  if (!eligibleCandidates.length) {
+    throw new RangeError('No candidate remains after the reroute boundary.');
+  }
+  const normalized = eligibleCandidates.map((candidate, index) => normalizedCandidate(candidate, index, context));
   const groups = groupCandidates(normalized);
   let beam = [{
-    cursorSecond: 0,
+    cursorSecond: routeStartSecond,
     scheduled: [],
     selectedKeys: new Set(),
     skippedGroups: [],
@@ -369,14 +437,32 @@ export function optimizeDayRoutes({
     Math.max(1, Math.trunc(alternativeCount) + 1),
     clamp(minimumAlternativeDistance),
   );
-  const fullPaths = diverse.map((state, index) => compileRoute(state, index, context, categoryBudgets));
-  const chosenPath = fullPaths[0];
+  const suffixPaths = diverse.map((state, index) => compileRoute(
+    state,
+    index,
+    context,
+    categoryBudgets,
+    { routeStartSecond, totalPoints, progressOffset },
+  ));
+  const chosenPath = suffixPaths[0];
+  const branchPrimaryPath = completedPath
+    ? stitchPrimaryPaths(completedPath, chosenPath, {
+        idSeed: context.idSeed ?? 'fifoo-routing',
+        pathKey: 'chosen-full',
+      })
+    : chosenPath;
 
   const validAlternativePaths = [];
   const branches = [];
-  for (const alternative of fullPaths.slice(1)) {
+  for (const alternative of suffixPaths.slice(1)) {
     try {
-      const [branch] = compileAlternativeBranches(chosenPath, [alternative], {
+      const comparableAlternative = completedPath
+        ? stitchPrimaryPaths(completedPath, alternative, {
+            idSeed: context.idSeed ?? 'fifoo-routing',
+            pathKey: `${alternative.pathKey}-full`,
+          })
+        : alternative;
+      const [branch] = compileAlternativeBranches(branchPrimaryPath, [comparableAlternative], {
         idSeed: context.idSeed ?? 'fifoo-routing',
       });
       validAlternativePaths.push(alternative);
@@ -387,7 +473,8 @@ export function optimizeDayRoutes({
     }
   }
 
-  return {
+  const result = {
+    completedPath,
     chosenPath,
     alternativePaths: validAlternativePaths,
     alternativeBranches: branches,
@@ -396,7 +483,42 @@ export function optimizeDayRoutes({
       ? 'personalized'
       : context.cohortPriors
         ? 'cohort-assisted'
-        : 'cold-start',
+      : 'cold-start',
+  };
+  validateDayGraph({ completedPath, chosenPath, alternativePaths: branches });
+  return result;
+}
+
+/**
+ * Re-optimizes only [decisionSecond, 86400). Immutable history and its
+ * value-based progress budget are copied into the new graph unchanged.
+ */
+export function optimizeFutureRoutes({
+  currentPrimaryPath,
+  decisionSecond,
+  candidates,
+  context = {},
+  ...options
+} = {}) {
+  const frozen = freezePrimaryPath(currentPrimaryPath, decisionSecond, {
+    idSeed: `${context.idSeed ?? 'fifoo-routing'}:revision`,
+  });
+  const optimized = optimizeDayRoutes({
+    ...options,
+    candidates,
+    context,
+    initialCursorSecond: frozen.decisionSecond,
+    totalPoints: frozen.remainingPotentialPoints,
+    progressOffset: frozen.lockedPotentialPoints,
+    completedPath: frozen.completedPath,
+  });
+  return {
+    ...optimized,
+    decisionSecond: frozen.decisionSecond,
+    splitFromIntervalID: frozen.splitFromIntervalID,
+    lockedPotentialPoints: frozen.lockedPotentialPoints,
+    remainingPotentialPoints: frozen.remainingPotentialPoints,
+    supersededFuturePath: frozen.supersededFuturePath,
   };
 }
 
@@ -406,4 +528,5 @@ export const routingEngineInternals = Object.freeze({
   placeCandidate,
   routeDistance,
   sampleConfidence,
+  freezePathAt: freezePrimaryPath,
 });

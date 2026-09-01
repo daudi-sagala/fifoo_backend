@@ -298,6 +298,117 @@ export function splitIntervalAt(interval, splitSecond, { idSeed = interval.inter
   return [left, right];
 }
 
+function progressTotal(intervals) {
+  return intervals.reduce((total, interval) => total + Number(interval.potentialPoints ?? 0), 0);
+}
+
+function pathWith({ source, pathKind, pathKey, intervals, idSeed }) {
+  return {
+    ...source,
+    pathID: stableUUID(`${idSeed}:path:${pathKey}`),
+    pathKey,
+    pathKind,
+    originIntervalID: null,
+    rejoinIntervalID: null,
+    intervals,
+  };
+}
+
+/**
+ * Freezes the authoritative primary path at an exact end-exclusive second.
+ * When the boundary cuts an interval, the elapsed side receives the original
+ * value-based potential in full; its obsolete future tail receives none and
+ * can be superseded without changing the historical denominator.
+ */
+export function freezePathAt(path, decisionSecond, { idSeed = 'fifoo-reroute' } = {}) {
+  validateContinuousPath(path, { requireFullDay: true });
+  const point = second(decisionSecond, 'decisionSecond', { allowEnd: true });
+  if (point <= DAY_START_SECOND || point >= DAY_END_SECOND) {
+    throw new RangeError('decisionSecond must be strictly inside the day.');
+  }
+
+  const completed = [];
+  const future = [];
+  let splitFromIntervalID = null;
+  for (const interval of path.intervals) {
+    if (interval.endSecond <= point) {
+      completed.push({ ...interval });
+    } else if (interval.startSecond >= point) {
+      future.push({ ...interval });
+    } else {
+      const [left, right] = splitIntervalAt(interval, point, {
+        idSeed: `${idSeed}:${interval.intervalID}`,
+      });
+      splitFromIntervalID = interval.intervalID;
+      completed.push({
+        ...left,
+        lifecycleStatus: interval.lifecycleStatus === 'planned' ? 'active' : interval.lifecycleStatus,
+        potentialPoints: Number(interval.potentialPoints ?? 0),
+      });
+      future.push({
+        ...right,
+        lifecycleStatus: 'superseded',
+        potentialPoints: 0,
+        plannedProgressStart: interval.plannedProgressEnd ?? interval.plannedProgressStart ?? 0,
+        plannedProgressEnd: interval.plannedProgressEnd ?? interval.plannedProgressStart ?? 0,
+      });
+    }
+  }
+
+  const completedPath = pathWith({
+    source: path,
+    pathKind: 'completed',
+    pathKey: 'completed',
+    intervals: completed,
+    idSeed,
+  });
+  const supersededFuturePath = pathWith({
+    source: path,
+    pathKind: 'chosen',
+    pathKey: 'superseded-future',
+    intervals: future,
+    idSeed,
+  });
+  validateContinuousPath(completedPath);
+  validateContinuousPath(supersededFuturePath);
+  if (completedPath.intervals[0].startSecond !== DAY_START_SECOND
+      || completedPath.intervals.at(-1).endSecond !== point
+      || supersededFuturePath.intervals[0].startSecond !== point
+      || supersededFuturePath.intervals.at(-1).endSecond !== DAY_END_SECOND) {
+    throw new RangeError('Frozen and mutable paths must meet exactly at the decision second.');
+  }
+  const lockedPotentialPoints = progressTotal(completedPath.intervals);
+  return {
+    completedPath,
+    supersededFuturePath,
+    decisionSecond: point,
+    splitFromIntervalID,
+    lockedPotentialPoints,
+    remainingPotentialPoints: Math.max(0, 100 - lockedPotentialPoints),
+  };
+}
+
+/** Builds a temporary full-day primary path from immutable history + future. */
+export function stitchPrimaryPaths(completedPath, chosenPath, {
+  idSeed = 'fifoo-reroute',
+  pathKey = 'stitched-primary',
+} = {}) {
+  validateContinuousPath(completedPath);
+  validateContinuousPath(chosenPath);
+  if (completedPath.intervals.at(-1).endSecond !== chosenPath.intervals[0].startSecond) {
+    throw new RangeError('Completed and chosen paths must meet at the same decision second.');
+  }
+  const stitched = pathWith({
+    source: chosenPath,
+    pathKind: 'chosen',
+    pathKey,
+    intervals: [...completedPath.intervals, ...chosenPath.intervals],
+    idSeed,
+  });
+  validateContinuousPath(stitched, { requireFullDay: true });
+  return stitched;
+}
+
 export function validateContinuousPath(path, { requireFullDay = false } = {}) {
   if (!path || !Array.isArray(path.intervals) || !path.intervals.length) {
     throw new TypeError('A day path requires at least one interval.');
@@ -389,6 +500,13 @@ export function validateDayGraph({ completedPath = null, chosenPath, alternative
   for (const path of primaryPaths) {
     validateContinuousPath(path, { requireFullDay: path.pathKind === 'chosen' && !completedPath });
     for (const interval of path.intervals) intervalOwner.set(interval.intervalID, path.pathKind);
+  }
+  if (completedPath) {
+    if (completedPath.intervals[0].startSecond !== DAY_START_SECOND
+        || completedPath.intervals.at(-1).endSecond !== chosenPath.intervals[0].startSecond
+        || chosenPath.intervals.at(-1).endSecond !== DAY_END_SECOND) {
+      throw new RangeError('Completed and chosen paths must cover [0, 86400) without a gap or overlap.');
+    }
   }
 
   for (const path of alternativePaths) {

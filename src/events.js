@@ -46,6 +46,7 @@ export const OUT = Object.freeze({
 
   routeSelect: 'game:route:select',
   routeBuild: 'game:route:build',
+  routeReroute: 'game:route:reroute',
   routeAttachNode: 'game:route:attach-node',
   routeDraftUpdate: 'game:route:draft:update',
   routePreviewUpdate: 'game:route:preview:update',
@@ -77,6 +78,7 @@ export const IN = Object.freeze({
   nodeDeleted: 'game:node:deleted',
   tileRevealState: 'game:tile:reveal:state',
   routeState: 'game:route:state',
+  dayPlanState: 'game:day-plan:state',
   searchResults: 'game:search:results',
   workoutCatalog: 'game:play:workouts',
   workout: 'game:play:workout',

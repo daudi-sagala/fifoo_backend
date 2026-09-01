@@ -215,7 +215,7 @@ The temporary product rules are isolated in
 `src/rules/standardWeightLossDay.js`. Replacing those rules does not require
 rewriting route/pathfinding code.
 
-## Routing and progress algorithms v1
+## Routing and progress algorithms v1 + future-only rerouting
 
 The implementation is split into pure, independently testable layers:
 
@@ -230,13 +230,18 @@ The implementation is split into pure, independently testable layers:
 - `src/services/dayPlanning.js` persists versioned graph plans and progress-ledger
   outcomes. Activity complete/skip socket mutations now update the ledger and
   `day_maps.current_progress` in the same authoritative transaction.
+- Future-only rerouting freezes `[0, now)`, splits the boundary interval at the
+  exact second, allocates only the remaining progress budget, and publishes a
+  child revision with connected chosen/alternative futures.
 
-The existing `day_map_routes.route_data` remains compatible with the current
-iOS build. The richer branch graph is stored alongside it and can be exposed in
-a later socket-contract revision.
+The existing `day_map_routes.route_data` and `game:route:state` payload remain
+compatible with the current iOS build. The richer graph is opt-in through
+`game:route:reroute` / `game:day-plan:state`.
 
 See `docs/ROUTING_PROGRESS_ALGORITHMS_V1.md` for invariants, scoring behavior,
 schema details, and the next implementation stage.
+See `docs/FUTURE_ONLY_REROUTING_V1.md` for the reroute boundary policy,
+transaction order, migration, and socket payload.
 
 ## Aug. 29, 2026 rich demo Day Map
 
