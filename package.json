@@ -1,6 +1,6 @@
 {
   "name": "fifoo-game-backend",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,9 @@
     "migrate": "node src/migrate.js",
     "seed:dev": "node src/dev/seedTestData.js",
     "generate:daily": "node src/jobs/generateDailyPaths.js",
-    "verify:phase3": "node scripts/verify-phase3-e2e.js"
+    "verify:phase3": "node scripts/verify-phase3-e2e.js",
+    "export:learning": "node scripts/export-learning-data.js",
+    "verify:phase4": "node scripts/verify-phase4-learning.js"
   },
   "engines": {
     "node": ">=22"

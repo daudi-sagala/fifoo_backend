@@ -1,6 +1,7 @@
 import { calculateProgressSnapshot, createLedgerEntry } from '../algorithms/progressEngine.js';
 import { stitchPrimaryPaths, validateDayGraph } from '../algorithms/dayGraph.js';
 import { optimizeFutureRoutes } from '../algorithms/routingEngine.js';
+import { captureLearningOutcome, captureRoutingDecision, routeObservation } from './learningData.js';
 
 function json(value) {
   return JSON.stringify(value ?? {});
@@ -259,6 +260,9 @@ export async function rerouteFutureDayPlan(client, {
   algorithmVersion = 2,
   rulesHash = null,
   alternativeCount = 2,
+  timeZoneIdentifier = null,
+  requestID = null,
+  occurredAt = new Date().toISOString(),
 } = {}) {
   const active = await client.query(
     `SELECT plan_id,graph_data,algorithm_name,algorithm_version,rules_hash
@@ -287,6 +291,10 @@ export async function rerouteFutureDayPlan(client, {
     }
   }
 
+  const decisionProgressSnapshot = await loadProgressSnapshot(client, {
+    dayMapID: dayMap.day_map_id,
+    nowSecond: Number(decisionSecond),
+  });
   const optimized = optimizeFutureRoutes({
     currentPrimaryPath,
     decisionSecond,
@@ -321,20 +329,33 @@ export async function rerouteFutureDayPlan(client, {
     newPlanID: persisted.planID,
     userID,
   });
-  await client.query(
-    `INSERT INTO routing_decision_events(
-       plan_id,day_map_id,user_id,decision_type,candidate_data,
-       predicted_progress,route_score,was_selected
-     ) VALUES ($1,$2,$3,'future_reroute',$4::jsonb,$5,$6,TRUE)`,
-    [
-      persisted.planID,
-      dayMap.day_map_id,
-      userID,
-      json({ decisionSecond: optimized.decisionSecond, rerouteReason }),
-      optimized.chosenPath.expectedProgress ?? null,
-      optimized.chosenPath.routeScore ?? null,
+  await captureRoutingDecision(client, {
+    planID: persisted.planID,
+    parentPlanID: previous.plan_id,
+    planRevision: persisted.planRevision,
+    dayMap,
+    userID,
+    mapDate,
+    timeZoneIdentifier,
+    decisionType: 'future_reroute',
+    decisionSecond: optimized.decisionSecond,
+    rerouteReason,
+    algorithmName,
+    algorithmVersion,
+    rulesHash: rulesHash ?? previous.rules_hash,
+    predictionMode: optimized.predictionMode,
+    routingContext,
+    progressSnapshot: decisionProgressSnapshot,
+    requestID,
+    occurredAt,
+    candidates: optimized.candidateObservations ?? candidates,
+    routes: optimized.routeObservations ?? [
+      routeObservation(optimized.chosenPath, 0, { selected: true, routeKind: 'chosen' }),
+      ...optimized.alternativeBranches.map((path, index) => (
+        routeObservation(path, index + 1, { selected: false, routeKind: 'alternative' })
+      )),
     ],
-  );
+  });
   const progressSnapshot = await loadProgressSnapshot(client, {
     dayMapID: dayMap.day_map_id,
     nowSecond: optimized.decisionSecond,
@@ -483,7 +504,8 @@ export async function recordProgressOutcome(client, {
 } = {}) {
   const intervalResult = await client.query(
     `SELECT
-       v.plan_id,i.plan_interval_id,i.algorithm_interval_id,i.start_second,i.end_second,
+       v.plan_id,i.plan_interval_id,i.algorithm_interval_id,i.source_node_id,
+       i.interval_key,i.interval_kind,i.start_second,i.end_second,
        i.potential_points,i.completion_evaluator,
        latest.ledger_entry_id AS latest_entry_id
      FROM day_plan_versions v
@@ -537,6 +559,26 @@ export async function recordProgressOutcome(client, {
     ],
   );
   entry.entryID = inserted.rows[0].ledger_entry_id;
+
+  await captureLearningOutcome(client, {
+    ledgerEntryID: entry.entryID,
+    supersedesLedgerEntryID: row.latest_entry_id,
+    planID: row.plan_id,
+    planIntervalID: row.plan_interval_id,
+    userID,
+    sourceNodeID: row.source_node_id,
+    candidateKey: row.interval_key,
+    intervalKind: row.interval_kind,
+    startSecond: row.start_second,
+    endSecond: row.end_second,
+    status: entry.status,
+    completionScore: entry.completionScore,
+    potentialPoints: entry.potentialPoints,
+    earnedPoints: entry.earnedPoints,
+    reasonCode: entry.reasonCode,
+    evidence: entry.evidence,
+    observedAt: entry.observedAt,
+  });
 
   const snapshot = await loadProgressSnapshot(client, { dayMapID: dayMap.day_map_id, nowSecond });
   await client.query(

@@ -473,12 +473,40 @@ export function optimizeDayRoutes({
     }
   }
 
+  const selectedCandidateKeys = new Set(
+    diverse[0]?.scheduled?.map((candidate) => candidate.key) ?? [],
+  );
+  const candidateObservations = normalized.map((candidate, index) => ({
+    ...candidate,
+    candidateRank: index,
+    wasEligible: candidate.hardExcluded !== true,
+    selectedByChosenRoute: selectedCandidateKeys.has(candidate.key),
+    predictedCompletionProbability: candidate.completionProbability,
+  }));
+  const exposedPaths = [chosenPath, ...validAlternativePaths];
+  const routeObservations = exposedPaths.map((path, index) => ({
+    routeKey: path.pathKey,
+    routeKind: index === 0 ? 'chosen' : 'alternative',
+    routeRank: index,
+    wasSelected: index === 0,
+    routeScore: path.routeScore ?? null,
+    expectedProgress: path.expectedProgress ?? null,
+    selectedCandidateKeys: path.selectedCandidateKeys ?? [],
+    routeFeatures: {
+      skippedDecisionGroups: path.skippedDecisionGroups ?? [],
+      intervalCount: path.intervals.length,
+      activityIntervalCount: path.intervals.filter((interval) => interval.sourceNodeID).length,
+    },
+  }));
+
   const result = {
     completedPath,
     chosenPath,
     alternativePaths: validAlternativePaths,
     alternativeBranches: branches,
     candidateRouteCount: ranked.length,
+    candidateObservations,
+    routeObservations,
     predictionMode: context.individualPriors
       ? 'personalized'
       : context.cohortPriors

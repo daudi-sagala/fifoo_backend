@@ -104,7 +104,7 @@ test('Phase 3 seeded flow refreshes state and future reroute preserves history +
       if (sql.includes('SELECT plan_id,total_potential_points')) {
         return { rowCount: 1, rows: [{ plan_id: activePlanID, total_potential_points: 100 }] };
       }
-      if (sql.includes("p.path_kind IN ('completed','chosen')")) {
+      if (sql.includes('JOIN day_plan_paths p') && sql.includes("p.path_kind IN ('completed','chosen')")) {
         const source = insertedIntervals.length
           ? insertedIntervals.filter((row) => ['completed', 'chosen'].includes(row.pathKind))
           : initial.dayGraph.chosenPath.intervals.map((interval) => ({
@@ -147,6 +147,15 @@ test('Phase 3 seeded flow refreshes state and future reroute preserves history +
             }
           : { rowCount: 0, rows: [] };
       }
+      if (sql.includes('FROM learning_outcome_observations')) return { rowCount: 0, rows: [] };
+      if (sql.includes('INSERT INTO routing_decision_events')) {
+        return { rowCount: 1, rows: [{ routing_decision_event_id: '01234567-89ab-4cde-8123-456789abcdef' }] };
+      }
+      if (sql.includes('INSERT INTO learning_decision_candidates')) {
+        return { rowCount: 1, rows: [{ learning_decision_candidate_id: '11234567-89ab-4cde-8123-456789abcdef' }] };
+      }
+      if (sql.includes('INSERT INTO learning_decision_routes')) return { rowCount: 1, rows: [] };
+      if (sql.includes('INSERT INTO learning_feature_snapshots')) return { rowCount: 1, rows: [] };
       return { rowCount: 1, rows: [{ day_map_id: dayMapID }] };
     },
   };

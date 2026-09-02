@@ -10,6 +10,7 @@ import { standardWeightLossDayRules } from '../rules/standardWeightLossDay.js';
 import { compileContinuousDay } from '../algorithms/dayGraph.js';
 import { allocateDailyBudget } from '../algorithms/progressEngine.js';
 import { activeDayPlanExists, persistCompiledDayPlan } from './dayPlanning.js';
+import { captureRoutingDecision, routeObservation } from './learningData.js';
 
 function hashRules(rules) {
   return crypto.createHash('sha256').update(JSON.stringify(rules)).digest('hex');
@@ -392,6 +393,49 @@ export async function generateDailyPathForUser(client, {
       fullDayIntervalCount: plan.dayGraph.chosenPath.intervals.length,
       expectedProgress: plan.dayGraph.chosenPath.expectedProgress,
     },
+  });
+
+  const initialLearningCandidates = plan.dayGraph.chosenPath.intervals
+    .filter((interval) => interval.sourceNodeID)
+    .map((interval, index) => ({
+      key: interval.candidateKey ?? interval.key,
+      candidateKey: interval.candidateKey ?? interval.key,
+      decisionGroup: interval.metadata?.decisionGroup ?? interval.candidateKey ?? interval.key,
+      kind: interval.intervalKind,
+      sourceNodeID: interval.sourceNodeID,
+      candidateRank: index,
+      wasEligible: true,
+      selectedByChosenRoute: true,
+      completionProbability: interval.metadata?.completionProbability ?? 0.65,
+      predictedProgressPoints: interval.potentialPoints ?? null,
+      durationSeconds: Math.max(1, interval.endSecond - interval.startSecond),
+      earliestStartSecond: interval.startSecond,
+      latestEndSecond: interval.endSecond,
+      fixedStartSecond: interval.startSecond,
+      progressCategory: interval.progressCategory,
+      progressWeightHint: interval.progressWeightHint ?? interval.potentialPoints ?? 0,
+      required: true,
+    }));
+
+  await captureRoutingDecision(client, {
+    planID: dayPlan.planID,
+    planRevision: dayPlan.planRevision,
+    dayMap,
+    userID: id,
+    mapDate: validatedMapDate,
+    timeZoneIdentifier: validatedTimeZone,
+    decisionType: 'initial_day_plan',
+    decisionSecond: Math.max(0, Math.min(86_400, Number(currentDayTimeSeconds) || 0)),
+    algorithmName: 'fifoo-deterministic-day-planner',
+    algorithmVersion: 1,
+    rulesHash: plan.rulesHash,
+    predictionMode: 'cold-start',
+    routingContext: {
+      mode: 'cold-start',
+      timeZoneIdentifier: validatedTimeZone,
+    },
+    candidates: initialLearningCandidates,
+    routes: [routeObservation(plan.dayGraph.chosenPath, 0, { selected: true, routeKind: 'chosen' })],
   });
 
   await client.query(

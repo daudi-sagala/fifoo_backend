@@ -367,6 +367,9 @@ export function registerGameSocket(io) {
         rerouteReason: payload.reason ?? 'context_changed',
         routingContext: payload.routingContext ?? {},
         alternativeCount: payload.maxAlternatives ?? 2,
+        timeZoneIdentifier: context.timeZoneIdentifier,
+        requestID: context.requestID,
+        occurredAt: context.sentAt ?? new Date().toISOString(),
       }),
       async ({ io, room, result }) => io.to(room).emit(IN.dayPlanState, {
         dayPlan: result.dayPlan,

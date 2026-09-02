@@ -60,24 +60,40 @@ test('reroute service publishes one atomic child revision and carries the comple
       if (sql.includes('SELECT plan_id,total_potential_points')) {
         return { rowCount: 1, rows: [{ plan_id: newPlanID, total_potential_points: 100 }] };
       }
-      if (sql.includes("p.path_kind IN ('completed','chosen')")) {
+      if (sql.includes('JOIN day_plan_paths p') && sql.includes("p.path_kind IN ('completed','chosen')")) {
+        const source = insertedIntervals.length
+          ? insertedIntervals.filter((row) => ['completed', 'chosen'].includes(row.pathKind))
+          : initial.dayGraph.chosenPath.intervals.map((interval) => ({
+              intervalID: interval.intervalID,
+              startSecond: interval.startSecond,
+              endSecond: interval.endSecond,
+              potentialPoints: Number(interval.potentialPoints ?? 0),
+              intervalData: interval.metadata ?? {},
+            }));
         return {
-          rowCount: insertedIntervals.length,
-          rows: insertedIntervals
-            .filter((row) => ['completed', 'chosen'].includes(row.pathKind))
-            .map((row, index) => ({
-              plan_interval_id: `f12b3456-c789-4def-8123-456789abcde${index}`,
-              interval_id: row.intervalID,
-              start_second: row.startSecond,
-              end_second: row.endSecond,
-              potential_points: row.potentialPoints,
-              completion_evaluator: { type: 'binary' },
-              interval_data: row.intervalData,
-              expected_progress: null,
-            })),
+          rowCount: source.length,
+          rows: source.map((row, index) => ({
+            plan_interval_id: `f12b3456-c789-4def-8123-456789abcde${index}`,
+            interval_id: row.intervalID,
+            start_second: row.startSecond,
+            end_second: row.endSecond,
+            potential_points: row.potentialPoints,
+            completion_evaluator: { type: 'binary' },
+            interval_data: row.intervalData,
+            expected_progress: null,
+          })),
         };
       }
       if (sql.includes('SELECT DISTINCT ON (l.plan_interval_id)')) return { rowCount: 0, rows: [] };
+      if (sql.includes('FROM learning_outcome_observations')) return { rowCount: 0, rows: [] };
+      if (sql.includes('INSERT INTO routing_decision_events')) {
+        return { rowCount: 1, rows: [{ routing_decision_event_id: '01234567-89ab-4cde-8123-456789abcdef' }] };
+      }
+      if (sql.includes('INSERT INTO learning_decision_candidates')) {
+        return { rowCount: 1, rows: [{ learning_decision_candidate_id: '11234567-89ab-4cde-8123-456789abcdef' }] };
+      }
+      if (sql.includes('INSERT INTO learning_decision_routes')) return { rowCount: 1, rows: [] };
+      if (sql.includes('INSERT INTO learning_feature_snapshots')) return { rowCount: 1, rows: [] };
       return { rowCount: 1, rows: [{ day_map_id: dayMapID }] };
     },
   };
