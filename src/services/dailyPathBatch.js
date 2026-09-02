@@ -42,6 +42,7 @@ export async function generateDailyPathsForAllUsers({
       mapDate,
       timeZoneIdentifier,
       force,
+      predictionRuntimeMode: config.predictionRuntimeMode,
       ...(rules ? { rules } : {}),
     }));
     results.push({

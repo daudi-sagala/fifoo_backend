@@ -2,6 +2,7 @@ import { calculateProgressSnapshot, createLedgerEntry } from '../algorithms/prog
 import { stitchPrimaryPaths, validateDayGraph } from '../algorithms/dayGraph.js';
 import { optimizeFutureRoutes } from '../algorithms/routingEngine.js';
 import { captureLearningOutcome, captureRoutingDecision, routeObservation } from './learningData.js';
+import { linkPredictionScoreRun, scoreCandidatesForRouting } from './predictionService.js';
 
 function json(value) {
   return JSON.stringify(value ?? {});
@@ -263,6 +264,7 @@ export async function rerouteFutureDayPlan(client, {
   timeZoneIdentifier = null,
   requestID = null,
   occurredAt = new Date().toISOString(),
+  predictionRuntimeMode = 'legacy',
 } = {}) {
   const active = await client.query(
     `SELECT plan_id,graph_data,algorithm_name,algorithm_version,rules_hash
@@ -295,11 +297,31 @@ export async function rerouteFutureDayPlan(client, {
     dayMapID: dayMap.day_map_id,
     nowSecond: Number(decisionSecond),
   });
+  const prediction = await scoreCandidatesForRouting(client, {
+    configuredMode: predictionRuntimeMode,
+    userID,
+    dayMap,
+    mapDate,
+    decisionSecond: Number(decisionSecond),
+    candidates,
+    routingContext: {
+      ...routingContext,
+      decisionType: 'future_reroute',
+      rerouteReason,
+    },
+    progressSnapshot: decisionProgressSnapshot,
+    requestID,
+    occurredAt,
+  });
   const optimized = optimizeFutureRoutes({
     currentPrimaryPath,
     decisionSecond,
-    candidates,
-    context: { ...routingContext, idSeed },
+    candidates: prediction.candidates,
+    context: {
+      ...routingContext,
+      idSeed,
+      predictionModeOverride: prediction.predictionMode,
+    },
     alternativeCount,
   });
   const persisted = await persistCompiledDayPlan(client, {
@@ -318,6 +340,7 @@ export async function rerouteFutureDayPlan(client, {
       candidateRouteCount: optimized.candidateRouteCount,
       lockedPotentialPoints: optimized.lockedPotentialPoints,
       remainingPotentialPoints: optimized.remainingPotentialPoints,
+      predictionModel: prediction.model,
     },
     parentPlanID: previous.plan_id,
     rerouteReason,
@@ -329,7 +352,7 @@ export async function rerouteFutureDayPlan(client, {
     newPlanID: persisted.planID,
     userID,
   });
-  await captureRoutingDecision(client, {
+  const learningDecision = await captureRoutingDecision(client, {
     planID: persisted.planID,
     parentPlanID: previous.plan_id,
     planRevision: persisted.planRevision,
@@ -344,6 +367,8 @@ export async function rerouteFutureDayPlan(client, {
     algorithmVersion,
     rulesHash: rulesHash ?? previous.rules_hash,
     predictionMode: optimized.predictionMode,
+    predictionModelName: prediction.model?.name ?? 'completion-prior-blend',
+    predictionModelVersion: prediction.model?.version ?? 1,
     routingContext,
     progressSnapshot: decisionProgressSnapshot,
     requestID,
@@ -356,6 +381,11 @@ export async function rerouteFutureDayPlan(client, {
       )),
     ],
   });
+  await linkPredictionScoreRun(
+    client,
+    prediction.predictionScoreRunID,
+    learningDecision.decisionEventID,
+  );
   const progressSnapshot = await loadProgressSnapshot(client, {
     dayMapID: dayMap.day_map_id,
     nowSecond: optimized.decisionSecond,

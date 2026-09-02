@@ -84,6 +84,7 @@ async function main() {
       rules,
       currentDayTimeSeconds: clockSeconds(argValue('current-time') ?? '', timeZoneIdentifier),
       maxAlternatives,
+      predictionRuntimeMode: config.predictionRuntimeMode,
     }));
     summaries.push({
       userID: user.user_id,

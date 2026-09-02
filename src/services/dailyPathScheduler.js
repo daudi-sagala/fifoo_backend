@@ -75,6 +75,7 @@ async function generateOne(user, mapDate, currentDayTimeSeconds) {
         mapDate,
         timeZoneIdentifier: user.timezone,
         currentDayTimeSeconds,
+        predictionRuntimeMode: config.predictionRuntimeMode,
       });
       await client.query('COMMIT');
       return result;

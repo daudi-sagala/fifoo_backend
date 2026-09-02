@@ -11,6 +11,7 @@ import { compileContinuousDay } from '../algorithms/dayGraph.js';
 import { allocateDailyBudget } from '../algorithms/progressEngine.js';
 import { activeDayPlanExists, persistCompiledDayPlan } from './dayPlanning.js';
 import { captureRoutingDecision, routeObservation } from './learningData.js';
+import { linkPredictionScoreRun, scoreCandidatesForRouting } from './predictionService.js';
 
 function hashRules(rules) {
   return crypto.createHash('sha256').update(JSON.stringify(rules)).digest('hex');
@@ -304,6 +305,7 @@ export async function generateDailyPathForUser(client, {
   force = false,
   currentDayTimeSeconds = 0,
   maxAlternatives = 3,
+  predictionRuntimeMode = 'legacy',
 } = {}) {
   const id = assertUUID(userID, 'userID');
   const validatedMapDate = assertMapDate(mapDate, 'mapDate');
@@ -374,27 +376,6 @@ export async function generateDailyPathForUser(client, {
     },
   });
 
-  const dayPlan = await persistCompiledDayPlan(client, {
-    dayMap,
-    userID: id,
-    mapDate: validatedMapDate,
-    algorithmName: 'fifoo-deterministic-day-planner',
-    algorithmVersion: 1,
-    rulesHash: plan.rulesHash,
-    chosenPath: plan.dayGraph.chosenPath,
-    alternativeBranches: plan.dayGraph.alternativeBranches,
-    routingContext: {
-      mode: 'cold-start',
-      timeZoneIdentifier: validatedTimeZone,
-      populationPriorFallback: 0.65,
-    },
-    decisionSummary: {
-      generatedStopCount: plan.nodes.length,
-      fullDayIntervalCount: plan.dayGraph.chosenPath.intervals.length,
-      expectedProgress: plan.dayGraph.chosenPath.expectedProgress,
-    },
-  });
-
   const initialLearningCandidates = plan.dayGraph.chosenPath.intervals
     .filter((interval) => interval.sourceNodeID)
     .map((interval, index) => ({
@@ -417,7 +398,73 @@ export async function generateDailyPathForUser(client, {
       required: true,
     }));
 
-  await captureRoutingDecision(client, {
+  const initialDecisionSecond = Math.max(0, Math.min(86_400, Number(currentDayTimeSeconds) || 0));
+  const prediction = await scoreCandidatesForRouting(client, {
+    configuredMode: predictionRuntimeMode,
+    userID: id,
+    dayMap,
+    mapDate: validatedMapDate,
+    decisionSecond: initialDecisionSecond,
+    candidates: initialLearningCandidates,
+    routingContext: {
+      mode: 'cold-start',
+      timeZoneIdentifier: validatedTimeZone,
+      decisionType: 'initial_day_plan',
+    },
+  });
+  const predictedByKey = new Map(
+    prediction.candidates.map((candidate) => [String(candidate.candidateKey ?? candidate.key), candidate]),
+  );
+  plan.dayGraph.chosenPath.intervals = plan.dayGraph.chosenPath.intervals.map((interval) => {
+    if (!interval.sourceNodeID) return interval;
+    const predicted = predictedByKey.get(String(interval.candidateKey ?? interval.key));
+    if (!predicted) return interval;
+    return {
+      ...interval,
+      metadata: {
+        ...(interval.metadata ?? {}),
+        completionProbability: predicted.completionProbability,
+        modelCompletionProbability: predicted.modelCompletionProbability ?? null,
+        predictionLevel: predicted.predictionLevel ?? 'legacy',
+      },
+    };
+  });
+  plan.dayGraph.chosenPath.expectedProgress = plan.dayGraph.chosenPath.intervals.reduce((total, interval) => (
+    total + Number(interval.potentialPoints ?? 0) * Number(
+      interval.metadata?.completionProbability
+        ?? (interval.intervalKind === 'freeTime' ? 0 : 0.65),
+    )
+  ), 0);
+
+  const dayPlan = await persistCompiledDayPlan(client, {
+    dayMap,
+    userID: id,
+    mapDate: validatedMapDate,
+    algorithmName: 'fifoo-deterministic-day-planner',
+    algorithmVersion: 1,
+    rulesHash: plan.rulesHash,
+    chosenPath: plan.dayGraph.chosenPath,
+    alternativeBranches: plan.dayGraph.alternativeBranches,
+    routingContext: {
+      mode: 'cold-start',
+      timeZoneIdentifier: validatedTimeZone,
+      populationPriorFallback: 0.65,
+    },
+    decisionSummary: {
+      generatedStopCount: plan.nodes.length,
+      fullDayIntervalCount: plan.dayGraph.chosenPath.intervals.length,
+      expectedProgress: plan.dayGraph.chosenPath.expectedProgress,
+      predictionMode: prediction.predictionMode,
+      predictionModel: prediction.model,
+    },
+  });
+
+  const scoredLearningCandidates = prediction.candidates.map((candidate) => ({
+    ...candidate,
+    selectedByChosenRoute: true,
+  }));
+
+  const learningDecision = await captureRoutingDecision(client, {
     planID: dayPlan.planID,
     planRevision: dayPlan.planRevision,
     dayMap,
@@ -425,18 +472,25 @@ export async function generateDailyPathForUser(client, {
     mapDate: validatedMapDate,
     timeZoneIdentifier: validatedTimeZone,
     decisionType: 'initial_day_plan',
-    decisionSecond: Math.max(0, Math.min(86_400, Number(currentDayTimeSeconds) || 0)),
+    decisionSecond: initialDecisionSecond,
     algorithmName: 'fifoo-deterministic-day-planner',
     algorithmVersion: 1,
     rulesHash: plan.rulesHash,
-    predictionMode: 'cold-start',
+    predictionMode: prediction.predictionMode,
+    predictionModelName: prediction.model?.name ?? 'completion-prior-blend',
+    predictionModelVersion: prediction.model?.version ?? 1,
     routingContext: {
       mode: 'cold-start',
       timeZoneIdentifier: validatedTimeZone,
     },
-    candidates: initialLearningCandidates,
+    candidates: scoredLearningCandidates,
     routes: [routeObservation(plan.dayGraph.chosenPath, 0, { selected: true, routeKind: 'chosen' })],
   });
+  await linkPredictionScoreRun(
+    client,
+    prediction.predictionScoreRunID,
+    learningDecision.decisionEventID,
+  );
 
   await client.query(
     `INSERT INTO day_map_generation_runs(

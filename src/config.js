@@ -89,6 +89,11 @@ export const config = Object.freeze(validateRuntimeConfig({
   dailyPathSchedulerIntervalMs: Math.max(60_000, Math.min(intEnv('DAILY_PATH_SCHEDULER_INTERVAL_MS', 300_000), 3_600_000)),
   dailyPathSchedulerStartupDelayMs: Math.max(0, Math.min(intEnv('DAILY_PATH_SCHEDULER_STARTUP_DELAY_MS', 15_000), 300_000)),
 
+  // Phase 5 prediction rollout is dual-gated: this process-level mode is the
+  // maximum authority the model may receive, while the database deployment
+  // record must also be shadow/active. Production defaults to shadow.
+  predictionRuntimeMode: (process.env.PREDICTION_RUNTIME_MODE ?? (nodeEnv === 'production' ? 'shadow' : 'legacy')).toLowerCase(),
+
   persistApplicationActions: boolEnv('PERSIST_APPLICATION_ACTIONS', false),
   logApplicationActions: boolEnv('LOG_APPLICATION_ACTIONS', nodeEnv !== 'production'),
 

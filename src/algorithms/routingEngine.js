@@ -69,6 +69,7 @@ function predictionFor(candidate, context) {
   const key = candidate.predictionKey ?? candidate.key;
   const population = context?.populationPriors?.[key]
     ?? context?.populationPriors?.[candidate.kind]
+    ?? candidate.completionProbability
     ?? candidate.populationCompletionProbability
     ?? 0.65;
   const cohortRecord = context?.cohortPriors?.[key]
@@ -507,11 +508,11 @@ export function optimizeDayRoutes({
     candidateRouteCount: ranked.length,
     candidateObservations,
     routeObservations,
-    predictionMode: context.individualPriors
+    predictionMode: context.predictionModeOverride ?? (context.individualPriors
       ? 'personalized'
       : context.cohortPriors
         ? 'cohort-assisted'
-      : 'cold-start',
+        : 'cold-start'),
   };
   validateDayGraph({ completedPath, chosenPath, alternativePaths: branches });
   return result;

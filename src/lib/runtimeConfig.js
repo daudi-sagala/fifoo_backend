@@ -23,6 +23,10 @@ export function validateRuntimeConfig(candidate) {
     throw new Error(`Unsupported LOG_LEVEL: ${candidate.logLevel}`);
   }
 
+  if (!['legacy', 'shadow', 'active'].includes(candidate.predictionRuntimeMode ?? 'legacy')) {
+    throw new Error(`Unsupported PREDICTION_RUNTIME_MODE: ${candidate.predictionRuntimeMode}`);
+  }
+
   if (candidate.emailProvider === 'webhook' && !candidate.passwordResetDeliveryURL) {
     throw new Error('PASSWORD_RESET_DELIVERY_URL is required when EMAIL_PROVIDER=webhook.');
   }

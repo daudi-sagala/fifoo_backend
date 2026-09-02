@@ -287,3 +287,15 @@ Step 6 adds:
 - backup/restore, alerts, domain/TLS and production verification runbooks.
 
 Use `.env.production.example` as the non-secret environment contract. Do not create a real production `.env` file in the repository.
+
+## Phase 5 — cohort/personalized prediction models
+
+Backend v0.6.0 adds a versioned completion-probability model hierarchy (population → cohort → individual), temporal evaluation/calibration, shadow scoring and dual-gated active route ranking. See `docs/PHASE5_PREDICTION_MODELS.md`.
+
+```bash
+npm run train:phase5
+npm run verify:phase5
+PREDICTION_DEPLOY_MODE=shadow npm run promote:phase5
+```
+
+Production defaults to `PREDICTION_RUNTIME_MODE=shadow`; learned predictions cannot affect authoritative rerouting until both the process gate and database deployment are explicitly active.

@@ -370,6 +370,7 @@ export function registerGameSocket(io) {
         timeZoneIdentifier: context.timeZoneIdentifier,
         requestID: context.requestID,
         occurredAt: context.sentAt ?? new Date().toISOString(),
+        predictionRuntimeMode: config.predictionRuntimeMode,
       }),
       async ({ io, room, result }) => io.to(room).emit(IN.dayPlanState, {
         dayPlan: result.dayPlan,

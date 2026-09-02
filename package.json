@@ -1,6 +1,6 @@
 {
   "name": "fifoo-game-backend",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,10 @@
     "generate:daily": "node src/jobs/generateDailyPaths.js",
     "verify:phase3": "node scripts/verify-phase3-e2e.js",
     "export:learning": "node scripts/export-learning-data.js",
-    "verify:phase4": "node scripts/verify-phase4-learning.js"
+    "verify:phase4": "node scripts/verify-phase4-learning.js",
+    "train:phase5": "node scripts/train-phase5-model.js",
+    "promote:phase5": "node scripts/promote-phase5-model.js",
+    "verify:phase5": "node scripts/verify-phase5-models.js"
   },
   "engines": {
     "node": ">=22"
