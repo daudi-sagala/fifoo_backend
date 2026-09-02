@@ -2,13 +2,10 @@ name: Deploy Fifoo backend production
 
 on:
   workflow_dispatch:
+
   push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'sql/**'
-      - 'package.json'
-      - '.github/workflows/deploy-production.yml'
+    branches:
+      - main
 
 permissions:
   id-token: write
@@ -18,19 +15,31 @@ concurrency:
   group: fifoo-production
   cancel-in-progress: false
 
+env:
+  AZURE_RESOURCE_GROUP: fifoo-production
+  AZURE_CONTAINER_APP: fifoo-game-api-prod
+  AZURE_ACR_NAME: fifooprodregistry01
+  IMAGE_NAME: fifoo-game-api-prod
+
 jobs:
   test-and-deploy:
+
     runs-on: ubuntu-latest
     environment: production
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
+          cache: npm
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Syntax checks
         run: npm run check
@@ -39,30 +48,92 @@ jobs:
         run: npm test
 
       - name: Azure login with GitHub OIDC
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Deploy to Azure App Service
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
-          package: .
+      - name: Install Container Apps CLI extension
+        run: |
+          az extension add \
+            --name containerapp \
+            --upgrade
 
-      - name: Verify readiness
-        env:
-          API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+      - name: Build and push production image
+        shell: bash
         run: |
           set -euo pipefail
+
+          REGISTRY="${AZURE_ACR_NAME}.azurecr.io"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}"
+
+          echo "Logging into ${REGISTRY}"
+          az acr login \
+            --name "${AZURE_ACR_NAME}"
+
+          echo "Building ${IMAGE}"
+          docker build \
+            --pull \
+            --tag "${IMAGE}" \
+            .
+
+          echo "Pushing ${IMAGE}"
+          docker push "${IMAGE}"
+
+          echo "DEPLOY_IMAGE=${IMAGE}" >> "$GITHUB_ENV"
+
+      - name: Deploy new Container App revision
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Deploying ${DEPLOY_IMAGE}"
+
+          az containerapp update \
+            --name "${AZURE_CONTAINER_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --image "${DEPLOY_IMAGE}" \
+            --output none
+
+      - name: Verify production readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FQDN="$(
+            az containerapp show \
+              --name "${AZURE_CONTAINER_APP}" \
+              --resource-group "${AZURE_RESOURCE_GROUP}" \
+              --query properties.configuration.ingress.fqdn \
+              --output tsv
+          )"
+
+          echo "Checking https://${FQDN}/ready"
+
           for attempt in $(seq 1 30); do
-            code="$(curl --silent --show-error --output /tmp/ready.out --write-out '%{http_code}' "$API_BASE_URL/ready" || true)"
-            if [ "$code" = "204" ]; then
+
+            CODE="$(
+              curl \
+                --silent \
+                --show-error \
+                --output /tmp/fifoo-ready.out \
+                --write-out '%{http_code}' \
+                "https://${FQDN}/ready" \
+                || true
+            )"
+
+            if [ "${CODE}" = "204" ]; then
               echo "Production backend is ready."
               exit 0
             fi
+
+            echo "Attempt ${attempt}: HTTP ${CODE}"
             sleep 10
           done
-          cat /tmp/ready.out || true
+
+          echo "Production readiness check failed."
+
+          cat /tmp/fifoo-ready.out || true
+
           exit 1
