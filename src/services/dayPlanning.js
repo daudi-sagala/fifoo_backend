@@ -342,16 +342,59 @@ export async function rerouteFutureDayPlan(client, {
   return {
     ...persisted,
     decisionSecond: optimized.decisionSecond,
+    rerouteReason,
+    effectiveAt: new Date().toISOString(),
     lockedPotentialPoints: optimized.lockedPotentialPoints,
     remainingPotentialPoints: optimized.remainingPotentialPoints,
     carriedLedgerEntryCount,
     progressSnapshot,
     dayPlan: {
       schema: 'fifoo.day-graph.v2',
+      dayStartSecond: 0,
+      dayEndSecond: 86_400,
       completedPath: optimized.completedPath,
       chosenPath: optimized.chosenPath,
       alternativeBranches: optimized.alternativeBranches,
     },
+  };
+}
+
+/**
+ * Loads the currently active authoritative Day Graph and its immutable-ledger
+ * progress projection. Used after initial sync, reconnect, conflict recovery,
+ * and manual refresh so iOS never has to reconstruct a plan from legacy route
+ * state.
+ */
+export async function loadAuthoritativeDayPlanState(client, {
+  dayMap,
+  nowSecond = null,
+} = {}) {
+  const result = await client.query(
+    `SELECT plan_id,plan_revision,graph_data,reroute_reason,decision_second,activated_at
+       FROM day_plan_versions
+      WHERE day_map_id=$1 AND plan_status='active'
+      ORDER BY plan_revision DESC
+      LIMIT 1`,
+    [dayMap.day_map_id],
+  );
+  if (!result.rowCount) return null;
+
+  const row = result.rows[0];
+  const effectiveSecond = Number.isFinite(Number(nowSecond))
+    ? Number(nowSecond)
+    : Number(dayMap.current_time_seconds ?? row.decision_second ?? 0);
+  const progressSnapshot = await loadProgressSnapshot(client, {
+    dayMapID: dayMap.day_map_id,
+    nowSecond: effectiveSecond,
+  });
+
+  return {
+    dayPlan: row.graph_data,
+    progressSnapshot,
+    planRevision: Number(row.plan_revision),
+    rerouteReason: row.reroute_reason ?? null,
+    decisionSecond: row.decision_second == null ? null : Number(row.decision_second),
+    effectiveAt: row.activated_at == null ? null : new Date(row.activated_at).toISOString(),
   };
 }
 

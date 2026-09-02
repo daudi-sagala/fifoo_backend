@@ -2,17 +2,13 @@ name: Deploy Fifoo backend production
 
 on:
   workflow_dispatch:
-
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
-      - "src/**"
-      - "sql/**"
-      - "scripts/**"
-      - "package.json"
-      - "Dockerfile"
-      - ".github/workflows/deploy-production.yml"
+      - 'src/**'
+      - 'sql/**'
+      - 'package.json'
+      - '.github/workflows/deploy-production.yml'
 
 permissions:
   id-token: write
@@ -25,15 +21,13 @@ concurrency:
 jobs:
   test-and-deploy:
     runs-on: ubuntu-latest
-
+    environment: production
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configure Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '22'
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -44,64 +38,31 @@ jobs:
       - name: Tests
         run: npm test
 
-      - name: Azure login
+      - name: Azure login with GitHub OIDC
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.FIFOOGAMEAPIPROD_AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.FIFOOGAMEAPIPROD_AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.FIFOOGAMEAPIPROD_AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build and deploy Container App
-        uses: azure/container-apps-deploy-action@v2
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
         with:
-          appSourcePath: ${{ github.workspace }}
-          dockerfilePath: Dockerfile
-          acrName: fifooprodregistry01
-          acrUsername: ${{ secrets.FIFOOGAMEAPIPROD_REGISTRY_USERNAME }}
-          acrPassword: ${{ secrets.FIFOOGAMEAPIPROD_REGISTRY_PASSWORD }}
-          imageToBuild: fifooprodregistry01.azurecr.io/fifoo-game-api-prod:${{ github.sha }}
-          containerAppName: fifoo-game-api-prod
-          resourceGroup: fifoo-production
-          targetPort: 3000
-          ingress: external
-          disableTelemetry: true
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: .
 
-      - name: Verify production readiness
+      - name: Verify readiness
+        env:
+          API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
         run: |
           set -euo pipefail
-        
-          FQDN="$(
-            az containerapp show \
-              --name fifoo-game-api-prod \
-              --resource-group fifoo-production \
-              --query properties.configuration.ingress.fqdn \
-              --output tsv
-          )"
-        
-          API_BASE_URL="https://${FQDN}"
-          echo "Verifying ${API_BASE_URL}"
-
           for attempt in $(seq 1 30); do
-            code="$(
-              curl \
-                --silent \
-                --show-error \
-                --output /tmp/ready.out \
-                --write-out '%{http_code}' \
-                "$API_BASE_URL/ready" \
-                || true
-            )"
-
+            code="$(curl --silent --show-error --output /tmp/ready.out --write-out '%{http_code}' "$API_BASE_URL/ready" || true)"
             if [ "$code" = "204" ]; then
               echo "Production backend is ready."
               exit 0
             fi
-
-            echo "Readiness attempt $attempt returned HTTP $code."
             sleep 10
           done
-
-          if [ -f /tmp/ready.out ]; then
-            cat /tmp/ready.out
-          fi
+          cat /tmp/ready.out || true
           exit 1

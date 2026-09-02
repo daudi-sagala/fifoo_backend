@@ -43,7 +43,7 @@ import {
   createFeedPostReply,
   setFeedPostSaved,
 } from '../services/socialHub.js';
-import { recordNodeProgressOutcome, rerouteFutureDayPlan } from '../services/dayPlanning.js';
+import { loadAuthoritativeDayPlanState, recordNodeProgressOutcome, rerouteFutureDayPlan } from '../services/dayPlanning.js';
 
 
 const mutationRateLimiter = createTokenWindow({
@@ -205,6 +205,21 @@ export function registerGameSocket(io) {
           await socket.join(room);
           const snapshot = await loadSnapshot(client, dayMap);
           socket.emit(IN.snapshot, snapshot);
+
+          // Phase 3 recovery contract: every explicit day refresh/reconnect
+          // follows the legacy snapshot with the active authoritative Day Graph.
+          // The client applies this future state atomically after preserving its
+          // already-rendered completed route history.
+          const dayPlanState = await loadAuthoritativeDayPlanState(client, {
+            dayMap,
+            nowSecond: Number(dayMap.current_time_seconds ?? 0),
+          });
+          if (dayPlanState) {
+            socket.emit(IN.dayPlanState, {
+              ...dayPlanState,
+              revision: Number(dayMap.revision ?? snapshot.revision ?? 0),
+            });
+          }
         } finally {
           client.release();
         }
@@ -358,6 +373,9 @@ export function registerGameSocket(io) {
         progressSnapshot: result.progressSnapshot,
         planRevision: result.planRevision,
         revision: result.revision,
+        rerouteReason: result.rerouteReason,
+        effectiveAt: result.effectiveAt,
+        decisionSecond: result.decisionSecond,
       }));
 
     registerMutation(socket, io, OUT.routeAttachNode,
