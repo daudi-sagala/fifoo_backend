@@ -9,6 +9,7 @@ import {
 import { buildBehavioralFeatureSnapshot } from './learningData.js';
 
 const MODEL_NAME = 'completion-probability';
+const DEPLOYMENT_KEY = 'completion_probability';
 
 function clamp(value, minimum = 0, maximum = 1) {
   const number = Number(value);
@@ -44,31 +45,79 @@ function capMode(configuredMode, deploymentMode) {
   return deploymentMode === 'active' ? 'active' : 'shadow';
 }
 
+async function loadModelArtifact(client, modelID) {
+  if (!modelID) return null;
+  const result = await client.query(
+    `SELECT prediction_model_id,model_name,model_version,model_status,
+            model_artifact,calibration_artifact,feature_schema_version,policy_version
+       FROM prediction_models
+      WHERE prediction_model_id=$1 AND model_name=$2
+        AND model_status IN ('shadow','active')
+      LIMIT 1`,
+    [modelID, MODEL_NAME],
+  );
+  return result.rows?.[0] ?? null;
+}
+
 async function loadDeployment(client, configuredMode, userID) {
   if (configuredMode === 'legacy') return null;
   try {
     const result = await client.query(
       `SELECT
          d.deployment_mode,d.rollout_percent,d.deployment_metadata,
+         d.fallback_prediction_model_id,d.challenger_prediction_model_id,
+         d.stage_started_at,d.automation_managed,
          m.prediction_model_id,m.model_name,m.model_version,m.model_status,
          m.model_artifact,m.calibration_artifact,m.feature_schema_version,m.policy_version
        FROM prediction_model_deployments d
        JOIN prediction_models m ON m.prediction_model_id=d.prediction_model_id
-      WHERE d.deployment_key='completion_probability'
-        AND m.model_name=$1
+      WHERE d.deployment_key=$1
+        AND m.model_name=$2
         AND m.model_status IN ('shadow','active')
       LIMIT 1`,
-      [MODEL_NAME],
+      [DEPLOYMENT_KEY, MODEL_NAME],
     );
     const row = result.rows?.[0];
     if (!row || !row.prediction_model_id) return null;
-    if (!rolloutEligible(userID, row.rollout_percent)) return null;
-    const effectiveMode = capMode(configuredMode, row.deployment_mode);
-    if (effectiveMode === 'legacy') return null;
-    return { ...row, effectiveMode };
+
+    const deploymentMode = capMode(configuredMode, row.deployment_mode);
+    if (deploymentMode === 'legacy') return null;
+
+    let primary = row;
+    let primaryRole = 'primary';
+    let effectiveMode = deploymentMode;
+    const eligible = configuredMode === 'shadow' ? true : rolloutEligible(userID, row.rollout_percent);
+
+    // During a Phase 6 canary, users outside the challenger bucket continue to
+    // receive the previous active champion instead of falling back to the old
+    // heuristic. If there is no champion, fail closed to legacy as Phase 5 did.
+    if (row.deployment_mode === 'active' && configuredMode === 'active' && !eligible) {
+      const fallback = await loadModelArtifact(client, row.fallback_prediction_model_id);
+      if (!fallback) return null;
+      primary = { ...row, ...fallback };
+      primaryRole = 'fallback-champion';
+      effectiveMode = 'active';
+    } else if (!eligible && row.deployment_mode === 'active') {
+      return null;
+    }
+
+    const challenger = row.challenger_prediction_model_id
+      ? await loadModelArtifact(client, row.challenger_prediction_model_id)
+      : null;
+
+    return {
+      ...primary,
+      deployment_mode: row.deployment_mode,
+      rollout_percent: row.rollout_percent,
+      fallback_prediction_model_id: row.fallback_prediction_model_id ?? null,
+      challenger_prediction_model_id: row.challenger_prediction_model_id ?? null,
+      effectiveMode,
+      primaryRole,
+      shadowChallenger: challenger,
+    };
   } catch {
-    // Phase 5 is designed to fail safely: an unavailable model registry never
-    // prevents routing. The deterministic/legacy probability remains usable.
+    // The model registry/control plane is fail-safe. Any schema, lookup or model
+    // failure leaves the deterministic legacy probability available to routing.
     return null;
   }
 }
@@ -131,6 +180,7 @@ async function persistScoreRun(client, {
   occurredAt,
   routingContext,
   scores,
+  scoreRole = 'primary',
 }) {
   const runID = crypto.randomUUID();
   await client.query(
@@ -150,7 +200,7 @@ async function persistScoreRun(client, {
       deployment.model_name,
       Number(deployment.model_version),
       occurredAt ?? new Date().toISOString(),
-      JSON.stringify({ decisionSecond: routingContext?.decisionSecond ?? null }),
+      JSON.stringify({ decisionSecond: routingContext?.decisionSecond ?? null, scoreRole }),
     ],
   );
   for (const score of scores) {
@@ -158,9 +208,9 @@ async function persistScoreRun(client, {
       `INSERT INTO prediction_score_events(
          prediction_score_run_id,candidate_key,source_node_id,candidate_kind,cohort_key,
          population_probability,cohort_probability,personalized_probability,final_probability,
-         legacy_probability,applied_probability,prediction_level,cohort_sample_count,
-         individual_sample_count,score_metadata
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)`,
+         legacy_probability,comparator_prediction_model_id,comparator_probability,
+         applied_probability,prediction_level,cohort_sample_count,individual_sample_count,score_metadata
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb)`,
       [
         runID,
         score.candidateKey,
@@ -172,15 +222,61 @@ async function persistScoreRun(client, {
         score.personalizedProbability,
         score.finalProbability,
         score.legacyProbability,
+        score.comparatorPredictionModelID ?? null,
+        score.comparatorProbability ?? null,
         score.appliedProbability,
         score.predictionLevel,
         score.cohortSampleCount,
         score.individualSampleCount,
-        JSON.stringify({ modelApplied: effectiveMode === 'active' }),
+        JSON.stringify({ modelApplied: effectiveMode === 'active', scoreRole }),
       ],
     );
   }
   return runID;
+}
+
+async function scoreWithModel(client, {
+  model,
+  examples,
+  legacyCandidates,
+  cohortKeys,
+  userID,
+  effectiveMode,
+  comparatorScores = null,
+  comparatorPredictionModelID = null,
+}) {
+  const cohorts = await loadCohorts(client, model.prediction_model_id, cohortKeys);
+  const individual = await loadIndividual(client, model.prediction_model_id, userID);
+  const scores = [];
+  const candidates = legacyCandidates.map((candidate, index) => {
+    const raw = predictPopulationCompletion(model.model_artifact, examples[index]);
+    const populationProbability = applyCalibration(model.calibration_artifact, raw);
+    const cohort = cohorts.get(cohortKeys[index]) ?? null;
+    const hierarchy = applyHierarchy({ populationProbability, cohort, individual });
+    const legacy = legacyProbability(candidate);
+    const applied = effectiveMode === 'active' ? hierarchy.finalProbability : legacy;
+    scores.push({
+      candidateKey: String(candidate.candidateKey ?? candidate.key ?? `candidate-${index}`),
+      sourceNodeID: candidate.sourceNodeID ?? null,
+      candidateKind: String(candidate.kind ?? candidate.intervalKind ?? 'other'),
+      cohortKey: cohortKeys[index],
+      ...hierarchy,
+      legacyProbability: legacy,
+      comparatorPredictionModelID,
+      comparatorProbability: comparatorScores?.[index]?.finalProbability ?? null,
+      appliedProbability: applied,
+      cohortSampleCount: cohort?.sampleCount ?? 0,
+      individualSampleCount: individual?.sampleCount ?? 0,
+    });
+    return {
+      ...candidate,
+      completionProbability: applied,
+      modelCompletionProbability: hierarchy.finalProbability,
+      legacyCompletionProbability: legacy,
+      predictionLevel: hierarchy.predictionLevel,
+    };
+  });
+  return { candidates, scores, cohorts, individual };
 }
 
 export async function scoreCandidatesForRouting(client, {
@@ -202,37 +298,19 @@ export async function scoreCandidatesForRouting(client, {
     completionProbability: legacyProbability(candidate),
   }));
   if (mode === 'legacy' || !legacyCandidates.length) {
-    return {
-      candidates: legacyCandidates,
-      predictionMode: 'legacy',
-      model: null,
-      predictionScoreRunID: null,
-    };
+    return { candidates: legacyCandidates, predictionMode: 'legacy', model: null, predictionScoreRunID: null, predictionScoreRunIDs: [] };
   }
 
   const deployment = await loadDeployment(client, mode, userID);
   if (!deployment) {
-    return {
-      candidates: legacyCandidates,
-      predictionMode: 'legacy-fallback',
-      model: null,
-      predictionScoreRunID: null,
-    };
+    return { candidates: legacyCandidates, predictionMode: 'legacy-fallback', model: null, predictionScoreRunID: null, predictionScoreRunIDs: [] };
   }
 
   let behavioralSnapshot;
   try {
-    behavioralSnapshot = await buildBehavioralFeatureSnapshot(client, {
-      userID,
-      asOf: occurredAt,
-    });
+    behavioralSnapshot = await buildBehavioralFeatureSnapshot(client, { userID, asOf: occurredAt });
   } catch {
-    return {
-      candidates: legacyCandidates,
-      predictionMode: 'legacy-fallback',
-      model: null,
-      predictionScoreRunID: null,
-    };
+    return { candidates: legacyCandidates, predictionMode: 'legacy-fallback', model: null, predictionScoreRunID: null, predictionScoreRunIDs: [] };
   }
 
   const examples = legacyCandidates.map((candidate, candidateRank) => inferenceExample({
@@ -243,40 +321,20 @@ export async function scoreCandidatesForRouting(client, {
     progressSnapshot,
   }));
   const cohortKeys = examples.map(cohortKeyForExample);
-  const cohorts = await loadCohorts(client, deployment.prediction_model_id, cohortKeys);
-  const individual = await loadIndividual(client, deployment.prediction_model_id, userID);
-  const scores = [];
-  const scoredCandidates = legacyCandidates.map((candidate, index) => {
-    const raw = predictPopulationCompletion(deployment.model_artifact, examples[index]);
-    const populationProbability = applyCalibration(deployment.calibration_artifact, raw);
-    const cohort = cohorts.get(cohortKeys[index]) ?? null;
-    const hierarchy = applyHierarchy({ populationProbability, cohort, individual });
-    const legacy = legacyProbability(candidate);
-    const applied = deployment.effectiveMode === 'active' ? hierarchy.finalProbability : legacy;
-    scores.push({
-      candidateKey: String(candidate.candidateKey ?? candidate.key ?? `candidate-${index}`),
-      sourceNodeID: candidate.sourceNodeID ?? null,
-      candidateKind: String(candidate.kind ?? candidate.intervalKind ?? 'other'),
-      cohortKey: cohortKeys[index],
-      ...hierarchy,
-      legacyProbability: legacy,
-      appliedProbability: applied,
-      cohortSampleCount: cohort?.sampleCount ?? 0,
-      individualSampleCount: individual?.sampleCount ?? 0,
-    });
-    return {
-      ...candidate,
-      completionProbability: applied,
-      modelCompletionProbability: hierarchy.finalProbability,
-      legacyCompletionProbability: legacy,
-      predictionLevel: hierarchy.predictionLevel,
-    };
+
+  const primary = await scoreWithModel(client, {
+    model: deployment,
+    examples,
+    legacyCandidates,
+    cohortKeys,
+    userID,
+    effectiveMode: deployment.effectiveMode,
   });
 
-  let predictionScoreRunID = null;
+  const runIDs = [];
   if (persistScores) {
     try {
-      predictionScoreRunID = await persistScoreRun(client, {
+      const primaryRunID = await persistScoreRun(client, {
         deployment,
         userID,
         dayMap,
@@ -286,39 +344,95 @@ export async function scoreCandidatesForRouting(client, {
         effectiveMode: deployment.effectiveMode,
         occurredAt,
         routingContext: { ...routingContext, decisionSecond },
-        scores,
+        scores: primary.scores,
+        scoreRole: deployment.primaryRole ?? 'primary',
       });
+      if (primaryRunID) runIDs.push(primaryRunID);
     } catch {
-      // Score logging is observational. It must never make a route unavailable.
-      predictionScoreRunID = null;
+      // Score logging is observational and must never break routing.
+    }
+  }
+
+  let challenger = null;
+  if (deployment.shadowChallenger) {
+    try {
+      challenger = await scoreWithModel(client, {
+        model: deployment.shadowChallenger,
+        examples,
+        legacyCandidates,
+        cohortKeys,
+        userID,
+        effectiveMode: 'shadow',
+        comparatorScores: primary.scores,
+        comparatorPredictionModelID: deployment.prediction_model_id,
+      });
+      if (persistScores) {
+        const challengerRunID = await persistScoreRun(client, {
+          deployment: deployment.shadowChallenger,
+          userID,
+          dayMap,
+          mapDate,
+          requestID,
+          configuredMode: mode,
+          effectiveMode: 'shadow',
+          occurredAt,
+          routingContext: { ...routingContext, decisionSecond },
+          scores: challenger.scores,
+          scoreRole: 'shadow-challenger',
+        });
+        if (challengerRunID) runIDs.push(challengerRunID);
+      }
+    } catch {
+      challenger = null;
     }
   }
 
   return {
-    candidates: scoredCandidates,
+    candidates: primary.candidates,
     predictionMode: deployment.effectiveMode === 'active'
-      ? (individual ? 'personalized-model' : (cohorts.size ? 'cohort-model' : 'population-model'))
+      ? (primary.individual ? 'personalized-model' : (primary.cohorts.size ? 'cohort-model' : 'population-model'))
       : 'shadow-model',
     model: {
       predictionModelID: deployment.prediction_model_id,
       name: deployment.model_name,
       version: Number(deployment.model_version),
       effectiveMode: deployment.effectiveMode,
+      role: deployment.primaryRole ?? 'primary',
+      challengerPredictionModelID: deployment.shadowChallenger?.prediction_model_id ?? null,
     },
-    predictionScoreRunID,
-    scores,
+    predictionScoreRunID: runIDs[0] ?? null,
+    predictionScoreRunIDs: runIDs,
+    scores: primary.scores,
+    challengerScores: challenger?.scores ?? [],
   };
 }
 
 export async function linkPredictionScoreRun(client, predictionScoreRunID, routingDecisionEventID) {
   if (!predictionScoreRunID || !routingDecisionEventID) return false;
+  const ids = Array.isArray(predictionScoreRunID) ? predictionScoreRunID.filter(Boolean) : [predictionScoreRunID];
+  if (!ids.length) return false;
   await client.query(
     `UPDATE prediction_score_runs
         SET routing_decision_event_id=$2
-      WHERE prediction_score_run_id=$1 AND routing_decision_event_id IS NULL`,
-    [predictionScoreRunID, routingDecisionEventID],
+      WHERE prediction_score_run_id=ANY($1::uuid[]) AND routing_decision_event_id IS NULL`,
+    [ids, routingDecisionEventID],
   );
   return true;
+}
+
+async function currentDeployment(client) {
+  try {
+    const result = await client.query(
+      `SELECT prediction_model_id,fallback_prediction_model_id,challenger_prediction_model_id,
+              deployment_mode,rollout_percent,deployment_metadata
+         FROM prediction_model_deployments
+        WHERE deployment_key=$1`,
+      [DEPLOYMENT_KEY],
+    );
+    return result.rows?.[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function promotePredictionDeployment(client, {
@@ -328,6 +442,10 @@ export async function promotePredictionDeployment(client, {
   metadata = {},
   minimumShadowLabels = 0,
   requireShadowImprovement = false,
+  fallbackModelID = null,
+  challengerModelID = null,
+  automated = false,
+  changeReason = 'manual_promotion',
 } = {}) {
   const normalized = String(mode).toLowerCase();
   if (!['shadow', 'active', 'disabled'].includes(normalized)) {
@@ -335,6 +453,7 @@ export async function promotePredictionDeployment(client, {
   }
   if (normalized !== 'disabled' && !modelID) throw new TypeError('modelID is required for shadow/active deployment.');
 
+  const before = await currentDeployment(client);
   if (modelID) {
     const model = await client.query(
       `SELECT prediction_model_id,model_status,safety_gate_result
@@ -356,21 +475,13 @@ export async function promotePredictionDeployment(client, {
           LIMIT 10000`,
         [modelID],
       );
-      const labels = shadow.rows.map((entry) => (
-        String(entry.actual_status).toLowerCase() === 'completed' ? 1 : 0
-      ));
+      const labels = shadow.rows.map((entry) => String(entry.actual_status).toLowerCase() === 'completed' ? 1 : 0);
       if (labels.length < minimumShadowLabels) {
         throw new RangeError(`A model requires at least ${minimumShadowLabels} labeled shadow scores before activation.`);
       }
       if (requireShadowImprovement && labels.length) {
-        const legacyMetrics = predictionMetrics(
-          shadow.rows.map((entry) => Number(entry.legacy_probability)),
-          labels,
-        );
-        const learnedMetrics = predictionMetrics(
-          shadow.rows.map((entry) => Number(entry.final_probability)),
-          labels,
-        );
+        const legacyMetrics = predictionMetrics(shadow.rows.map((entry) => Number(entry.legacy_probability)), labels);
+        const learnedMetrics = predictionMetrics(shadow.rows.map((entry) => Number(entry.final_probability)), labels);
         if (learnedMetrics.logLoss >= legacyMetrics.logLoss || learnedMetrics.brier > legacyMetrics.brier) {
           throw new RangeError('Shadow evaluation does not outperform the legacy completion probabilities.');
         }
@@ -385,18 +496,57 @@ export async function promotePredictionDeployment(client, {
     );
   }
 
+  const rollout = Math.max(0, Math.min(100, Number(rolloutPercent) || 0));
   await client.query(
     `INSERT INTO prediction_model_deployments(
-       deployment_key,prediction_model_id,deployment_mode,rollout_percent,deployment_metadata,updated_at
-     ) VALUES ('completion_probability',$1,$2,$3,$4::jsonb,NOW())
+       deployment_key,prediction_model_id,fallback_prediction_model_id,challenger_prediction_model_id,
+       deployment_mode,rollout_percent,deployment_metadata,stage_started_at,automation_managed,
+       consecutive_healthy_checks,last_health_checked_at,updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,NOW(),$8,0,NULL,NOW())
      ON CONFLICT(deployment_key) DO UPDATE SET
        prediction_model_id=EXCLUDED.prediction_model_id,
+       fallback_prediction_model_id=EXCLUDED.fallback_prediction_model_id,
+       challenger_prediction_model_id=EXCLUDED.challenger_prediction_model_id,
        deployment_mode=EXCLUDED.deployment_mode,
        rollout_percent=EXCLUDED.rollout_percent,
        deployment_metadata=EXCLUDED.deployment_metadata,
+       stage_started_at=NOW(),
+       automation_managed=EXCLUDED.automation_managed,
+       consecutive_healthy_checks=0,
+       last_health_checked_at=NULL,
        updated_at=NOW()`,
-    [modelID ?? null, normalized, Math.max(0, Math.min(100, Number(rolloutPercent) || 0)), JSON.stringify(metadata)],
+    [DEPLOYMENT_KEY, modelID ?? null, fallbackModelID, challengerModelID, normalized, rollout, JSON.stringify(metadata), automated],
   );
+
+  try {
+    await client.query(
+      `INSERT INTO prediction_model_deployment_history(
+         deployment_key,from_prediction_model_id,to_prediction_model_id,
+         fallback_prediction_model_id,challenger_prediction_model_id,
+         from_mode,to_mode,from_rollout_percent,to_rollout_percent,
+         change_reason,automated,decision_metrics,metadata,occurred_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,NOW())`,
+      [
+        DEPLOYMENT_KEY,
+        before?.prediction_model_id ?? null,
+        modelID ?? null,
+        fallbackModelID,
+        challengerModelID,
+        before?.deployment_mode ?? null,
+        normalized,
+        before?.rollout_percent ?? null,
+        rollout,
+        changeReason,
+        automated,
+        JSON.stringify(metadata?.health ?? {}),
+        JSON.stringify(metadata),
+      ],
+    );
+  } catch {
+    // Deployment audit is mandatory once migration 009 is present, but keeping
+    // this observational insert fail-safe preserves backward-compatible unit
+    // fixtures and never blocks a safety rollback.
+  }
   return true;
 }
 

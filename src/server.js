@@ -11,6 +11,7 @@ import { logger } from './lib/logger.js';
 import { requestContext, requireHTTPS, securityHeaders } from './http/security.js';
 import { createRateLimiter, makeSocketConnectionLimiter } from './http/rateLimit.js';
 import { startDailyPathScheduler, stopDailyPathScheduler } from './services/dailyPathScheduler.js';
+import { startPredictionModelOpsScheduler, stopPredictionModelOpsScheduler } from './services/modelOpsScheduler.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -133,8 +134,11 @@ server.listen(config.port, () => {
     nodeEnv: config.nodeEnv,
     authMode: config.authMode,
     schedulerEnabled: config.dailyPathSchedulerEnabled,
+    predictionModelOpsEnabled: config.predictionModelOpsEnabled,
+    predictionRuntimeMode: config.predictionRuntimeMode,
   });
   startDailyPathScheduler();
+  startPredictionModelOpsScheduler();
 });
 
 let shuttingDown = false;
@@ -143,6 +147,7 @@ async function shutdown(signal) {
   shuttingDown = true;
   logger.info('server shutdown started', { signal });
   stopDailyPathScheduler();
+  stopPredictionModelOpsScheduler();
   io.close();
   server.close(async () => {
     try {

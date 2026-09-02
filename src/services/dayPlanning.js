@@ -383,7 +383,7 @@ export async function rerouteFutureDayPlan(client, {
   });
   await linkPredictionScoreRun(
     client,
-    prediction.predictionScoreRunID,
+    prediction.predictionScoreRunIDs?.length ? prediction.predictionScoreRunIDs : prediction.predictionScoreRunID,
     learningDecision.decisionEventID,
   );
   const progressSnapshot = await loadProgressSnapshot(client, {

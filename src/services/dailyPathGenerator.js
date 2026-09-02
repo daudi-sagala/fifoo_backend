@@ -488,7 +488,7 @@ export async function generateDailyPathForUser(client, {
   });
   await linkPredictionScoreRun(
     client,
-    prediction.predictionScoreRunID,
+    prediction.predictionScoreRunIDs?.length ? prediction.predictionScoreRunIDs : prediction.predictionScoreRunID,
     learningDecision.decisionEventID,
   );
 

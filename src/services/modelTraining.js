@@ -12,6 +12,27 @@ import {
 } from '../ml/completionModel.js';
 import { LEARNING_FEATURE_SCHEMA_VERSION, LEARNING_POLICY_VERSION } from './learningData.js';
 
+
+function probabilityHistogram(probabilities, bins = 10) {
+  const totals = new Array(bins).fill(0);
+  for (const raw of probabilities ?? []) {
+    const p = Math.max(0, Math.min(1 - Number.EPSILON, Number(raw) || 0));
+    totals[Math.min(bins - 1, Math.floor(p * bins))] += 1;
+  }
+  const total = totals.reduce((sum, value) => sum + value, 0);
+  return total ? totals.map((value) => value / total) : totals;
+}
+
+function monitoringReference(probabilities, labels, bins = 10) {
+  const positives = (labels ?? []).reduce((sum, value) => sum + (Number(value) >= 0.5 ? 1 : 0), 0);
+  return {
+    sampleCount: probabilities?.length ?? 0,
+    positiveRate: labels?.length ? positives / labels.length : null,
+    probabilityHistogram: probabilityHistogram(probabilities, bins),
+    bins,
+  };
+}
+
 export const COMPLETION_MODEL_NAME = 'completion-probability';
 export const COMPLETION_MODEL_FAMILY = 'logistic+hierarchical-calibration';
 export const COMPLETION_TRAINING_VIEW = 'learning_completion_examples_v1';
@@ -53,11 +74,14 @@ export async function loadCompletionTrainingExamples(client, {
   parameters.push(Math.max(1, Math.min(5_000_000, Number(limit) || 1_000_000)));
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const result = await client.query(
-    `SELECT *
-       FROM ${COMPLETION_TRAINING_VIEW}
-       ${where}
-      ORDER BY decision_at,routing_decision_event_id,learning_decision_candidate_id
-      LIMIT $${parameters.length}`,
+    `SELECT * FROM (
+       SELECT *
+         FROM ${COMPLETION_TRAINING_VIEW}
+         ${where}
+        ORDER BY decision_at DESC,routing_decision_event_id DESC,learning_decision_candidate_id DESC
+        LIMIT $${parameters.length}
+     ) recent
+     ORDER BY decision_at,routing_decision_event_id,learning_decision_candidate_id`,
     parameters,
   );
   return result.rows ?? [];
@@ -91,6 +115,7 @@ export function trainCompletionHierarchy(examples, {
   const metrics = predictionMetrics(evaluationPredictions, evaluationLabels);
   const baselineMetrics = predictionMetrics(baselinePredictions, evaluationLabels);
   const safetyGateResult = modelSafetyGates(metrics, baselineMetrics, gates);
+  const monitoring = monitoringReference(evaluationPredictions, evaluationLabels);
 
   const calibrationRows = [...split.train, ...split.validation];
   const calibrationPopulation = populationPredictions(modelArtifact, calibrationArtifact, calibrationRows);
@@ -123,6 +148,7 @@ export function trainCompletionHierarchy(examples, {
       cohortShrinkageHalfLife,
       individualPriorStrength,
       individualShrinkageHalfLife,
+      monitoringReference: monitoring,
     },
   };
 }
@@ -140,6 +166,7 @@ async function nextVersion(client, modelName) {
 export async function persistCompletionHierarchy(client, trained, {
   modelName = COMPLETION_MODEL_NAME,
   modelStatus = null,
+  autoDeployShadow = true,
 } = {}) {
   const version = await nextVersion(client, modelName);
   const trainRange = range(trained.split.train);
@@ -169,7 +196,7 @@ export async function persistCompletionHierarchy(client, trained, {
       trained.metadata.policyVersion,
       JSON.stringify({ ...trained.modelArtifact, metadata: trained.metadata }),
       JSON.stringify(trained.calibrationArtifact),
-      JSON.stringify(trained.metrics),
+      JSON.stringify({ ...trained.metrics, monitoringReference: trained.metadata.monitoringReference }),
       JSON.stringify(trained.baselineMetrics),
       JSON.stringify(trained.safetyGateResult),
       trainRange.start,
@@ -226,16 +253,23 @@ export async function persistCompletionHierarchy(client, trained, {
     );
   }
 
-  if (status === 'shadow') {
+  if (status === 'shadow' && autoDeployShadow) {
     await client.query(
       `INSERT INTO prediction_model_deployments(
-         deployment_key,prediction_model_id,deployment_mode,rollout_percent,deployment_metadata,updated_at
-       ) VALUES ('completion_probability',$1,'shadow',100,$2::jsonb,NOW())
+         deployment_key,prediction_model_id,fallback_prediction_model_id,challenger_prediction_model_id,
+         deployment_mode,rollout_percent,deployment_metadata,stage_started_at,automation_managed,
+         consecutive_healthy_checks,updated_at
+       ) VALUES ('completion_probability',$1,NULL,NULL,'shadow',100,$2::jsonb,NOW(),FALSE,0,NOW())
        ON CONFLICT(deployment_key) DO UPDATE SET
          prediction_model_id=EXCLUDED.prediction_model_id,
+         fallback_prediction_model_id=NULL,
+         challenger_prediction_model_id=NULL,
          deployment_mode='shadow',
          rollout_percent=100,
          deployment_metadata=EXCLUDED.deployment_metadata,
+         stage_started_at=NOW(),
+         automation_managed=FALSE,
+         consecutive_healthy_checks=0,
          updated_at=NOW()`,
       [model.prediction_model_id, JSON.stringify({ promotedBy: 'phase5-training-gates' })],
     );

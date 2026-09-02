@@ -19,6 +19,22 @@ function intEnv(name, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function numberEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+
+function percentListEnv(name, fallback = '10,25,50,100') {
+  const values = String(process.env[name] ?? fallback)
+    .split(',')
+    .map((value) => Number.parseInt(value.trim(), 10))
+    .filter((value) => Number.isFinite(value) && value > 0 && value <= 100);
+  const unique = [...new Set(values)].sort((a, b) => a - b);
+  if (!unique.length || unique.at(-1) !== 100) unique.push(100);
+  return unique;
+}
+
 function required(name) {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
@@ -93,6 +109,39 @@ export const config = Object.freeze(validateRuntimeConfig({
   // maximum authority the model may receive, while the database deployment
   // record must also be shadow/active. Production defaults to shadow.
   predictionRuntimeMode: (process.env.PREDICTION_RUNTIME_MODE ?? (nodeEnv === 'production' ? 'shadow' : 'legacy')).toLowerCase(),
+
+  // Phase 6 automated model lifecycle. It is safe to run while the process gate
+  // remains `shadow`; automatic canary/active changes only become authoritative
+  // after the operator raises PREDICTION_RUNTIME_MODE to `active` once.
+  predictionModelOpsEnabled: boolEnv('PREDICTION_MODEL_OPS_ENABLED', nodeEnv === 'production'),
+  predictionModelOpsIntervalMs: Math.max(3_600_000, Math.min(intEnv('PREDICTION_MODEL_OPS_INTERVAL_MS', 21_600_000), 86_400_000)),
+  predictionModelOpsStartupDelayMs: Math.max(0, Math.min(intEnv('PREDICTION_MODEL_OPS_STARTUP_DELAY_MS', 60_000), 600_000)),
+  predictionModelOpsTrainingLimit: Math.max(100, Math.min(intEnv('PREDICTION_MODEL_OPS_TRAINING_LIMIT', 20_000), 5_000_000)),
+  predictionModelOpsEvaluationLimit: Math.max(100, Math.min(intEnv('PREDICTION_MODEL_OPS_EVALUATION_LIMIT', 10_000), 50_000)),
+  predictionModelOpsMinimumTrainingExamples: Math.max(50, intEnv('PREDICTION_MODEL_OPS_MIN_TRAINING_EXAMPLES', 400)),
+  predictionModelOpsRetrainMinimumNewLabels: Math.max(10, intEnv('PREDICTION_MODEL_OPS_RETRAIN_MIN_NEW_LABELS', 100)),
+  predictionModelOpsRetrainMinimumIntervalHours: Math.max(1, numberEnv('PREDICTION_MODEL_OPS_RETRAIN_MIN_INTERVAL_HOURS', 24)),
+  predictionModelOpsRetrainMaximumIntervalHours: Math.max(24, numberEnv('PREDICTION_MODEL_OPS_RETRAIN_MAX_INTERVAL_HOURS', 168)),
+  predictionModelOpsTrainingEpochs: Math.max(50, Math.min(intEnv('PREDICTION_MODEL_OPS_TRAINING_EPOCHS', 300), 1500)),
+  predictionModelOpsMinimumHealthyChecks: Math.max(1, Math.min(intEnv('PREDICTION_MODEL_OPS_MIN_HEALTHY_CHECKS', 2), 10)),
+  predictionModelOpsMinimumIndividualSamples: Math.max(1, intEnv('PREDICTION_MODEL_OPS_MIN_INDIVIDUAL_SAMPLES', 3)),
+  predictionModelOpsMinimumShadowLabels: Math.max(20, intEnv('PREDICTION_MODEL_OPS_MIN_SHADOW_LABELS', 100)),
+  predictionModelOpsMinimumCanaryLabels: Math.max(10, intEnv('PREDICTION_MODEL_OPS_MIN_CANARY_LABELS', 50)),
+  predictionModelOpsMinimumShadowLogLossImprovement: Math.max(0, numberEnv('PREDICTION_MODEL_OPS_MIN_SHADOW_LOG_LOSS_IMPROVEMENT', 0.002)),
+  predictionModelOpsRolloutSteps: percentListEnv('PREDICTION_MODEL_OPS_ROLLOUT_STEPS'),
+  predictionModelOpsAutomaticRollback: boolEnv('PREDICTION_MODEL_OPS_AUTOMATIC_ROLLBACK', true),
+  predictionModelOpsOfflineMinTestExamples: Math.max(20, intEnv('PREDICTION_MODEL_OPS_OFFLINE_MIN_TEST_EXAMPLES', 50)),
+  predictionModelOpsOfflineMaxLogLoss: numberEnv('PREDICTION_MODEL_OPS_OFFLINE_MAX_LOG_LOSS', 0.75),
+  predictionModelOpsOfflineMaxBrier: numberEnv('PREDICTION_MODEL_OPS_OFFLINE_MAX_BRIER', 0.25),
+  predictionModelOpsOfflineMaxECE: numberEnv('PREDICTION_MODEL_OPS_OFFLINE_MAX_ECE', 0.15),
+  predictionModelOpsOfflineMinAUC: numberEnv('PREDICTION_MODEL_OPS_OFFLINE_MIN_AUC', 0.55),
+  predictionModelOpsMaxLogLossRegression: Math.max(0, numberEnv('PREDICTION_MODEL_OPS_MAX_LOG_LOSS_REGRESSION', 0.02)),
+  predictionModelOpsMaxBrierRegression: Math.max(0, numberEnv('PREDICTION_MODEL_OPS_MAX_BRIER_REGRESSION', 0.01)),
+  predictionModelOpsMaxECE: Math.max(0, numberEnv('PREDICTION_MODEL_OPS_MAX_ECE', 0.18)),
+  predictionModelOpsMaxPSI: Math.max(0, numberEnv('PREDICTION_MODEL_OPS_MAX_PSI', 0.25)),
+  predictionModelOpsMaxPositiveRateDelta: Math.max(0, numberEnv('PREDICTION_MODEL_OPS_MAX_POSITIVE_RATE_DELTA', 0.20)),
+  predictionModelOpsMinimumCohortLabels: Math.max(5, intEnv('PREDICTION_MODEL_OPS_MIN_COHORT_LABELS', 20)),
+  predictionModelOpsMaxCohortLogLossRegression: Math.max(0, numberEnv('PREDICTION_MODEL_OPS_MAX_COHORT_LOG_LOSS_REGRESSION', 0.05)),
 
   persistApplicationActions: boolEnv('PERSIST_APPLICATION_ACTIONS', false),
   logApplicationActions: boolEnv('LOG_APPLICATION_ACTIONS', nodeEnv !== 'production'),

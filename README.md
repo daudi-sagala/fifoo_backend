@@ -299,3 +299,17 @@ PREDICTION_DEPLOY_MODE=shadow npm run promote:phase5
 ```
 
 Production defaults to `PREDICTION_RUNTIME_MODE=shadow`; learned predictions cannot affect authoritative rerouting until both the process gate and database deployment are explicitly active.
+
+## Phase 6 — automated model lifecycle
+
+Backend v0.7.0 adds automated model operations around the Phase 5 completion models. See `docs/PHASE6_AUTOMATED_MODEL_OPERATIONS.md` and `PHASE6_COMPLETION.md`.
+
+Useful commands:
+
+```bash
+npm run verify:phase6
+npm run run:model-ops
+npm run rollback:phase6
+```
+
+Production automation is enabled with `PREDICTION_MODEL_OPS_ENABLED=true`. Keep `PREDICTION_RUNTIME_MODE=shadow` for observation-only operation; set it to `active` once to authorize the database-controlled automatic canary lifecycle.

@@ -27,6 +27,13 @@ export function validateRuntimeConfig(candidate) {
     throw new Error(`Unsupported PREDICTION_RUNTIME_MODE: ${candidate.predictionRuntimeMode}`);
   }
 
+  if (candidate.predictionModelOpsEnabled) {
+    const steps = candidate.predictionModelOpsRolloutSteps ?? [];
+    if (!Array.isArray(steps) || !steps.length || steps.some((value) => !Number.isInteger(value) || value <= 0 || value > 100)) {
+      throw new Error('PREDICTION_MODEL_OPS_ROLLOUT_STEPS must contain rollout percentages between 1 and 100.');
+    }
+  }
+
   if (candidate.emailProvider === 'webhook' && !candidate.passwordResetDeliveryURL) {
     throw new Error('PASSWORD_RESET_DELIVERY_URL is required when EMAIL_PROVIDER=webhook.');
   }

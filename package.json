@@ -1,12 +1,12 @@
 {
   "name": "fifoo-game-backend",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "node --watch src/bootstrap.js",
     "start": "node src/bootstrap.js",
-    "check": "find src test -name '*.js' -print0 | xargs -0 -n1 node --check",
+    "check": "find src test scripts -name '*.js' -print0 | xargs -0 -n1 node --check",
     "test": "node --test",
     "migrate": "node src/migrate.js",
     "seed:dev": "node src/dev/seedTestData.js",
@@ -16,7 +16,10 @@
     "verify:phase4": "node scripts/verify-phase4-learning.js",
     "train:phase5": "node scripts/train-phase5-model.js",
     "promote:phase5": "node scripts/promote-phase5-model.js",
-    "verify:phase5": "node scripts/verify-phase5-models.js"
+    "verify:phase5": "node scripts/verify-phase5-models.js",
+    "run:model-ops": "node scripts/run-model-ops.js",
+    "verify:phase6": "node scripts/verify-phase6-model-ops.js",
+    "rollback:phase6": "node scripts/rollback-phase6-model.js"
   },
   "engines": {
     "node": ">=22"
