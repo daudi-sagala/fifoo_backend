@@ -44,6 +44,7 @@ import {
   setFeedPostSaved,
 } from '../services/socialHub.js';
 import { loadAuthoritativeDayPlanState, recordNodeProgressOutcome, rerouteFutureDayPlan } from '../services/dayPlanning.js';
+import { recordActivitySupportOutcome, refreshActivitySupportPlanForUser } from '../services/activitySupportPlanner.js';
 
 
 const mutationRateLimiter = createTokenWindow({
@@ -125,6 +126,51 @@ async function emitNode(io, room, result) {
   io.to(room).emit(IN.nodeUpserted, { node: result.node, revision: result.revision });
 }
 
+async function refreshAndBroadcastActivitySupport(io, {
+  userID,
+  timeZoneIdentifier,
+} = {}) {
+  if (!config.activitySupportPlannerEnabled || !userID || !timeZoneIdentifier) return null;
+  try {
+    const result = await refreshActivitySupportPlanForUser({ userID, timeZoneIdentifier });
+    for (const change of result.changes ?? []) {
+      const room = dayRoom(userID, change.mapDate);
+      for (const node of change.upsertedNodes ?? []) {
+        io.to(room).emit(IN.nodeUpserted, { node, revision: change.revision });
+      }
+      for (const nodeID of change.deletedNodeIDs ?? []) {
+        io.to(room).emit(IN.nodeDeleted, { nodeID: { rawValue: nodeID }, revision: change.revision });
+      }
+      if (change.dayPlanState) {
+        io.to(room).emit(IN.dayPlanState, change.dayPlanState);
+      }
+    }
+    io.to(userRoom(userID)).emit(IN.supportPlanState, result.state);
+    return result;
+  } catch (error) {
+    // Support planning is additive. A planner failure must never invalidate a
+    // successfully committed user mutation or the existing authoritative route.
+    console.error('activity support planner refresh failed', { userID, error });
+    return null;
+  }
+}
+
+async function emitNodeAndRefreshSupport({ io, socket, room, result, envelope }) {
+  await emitNode(io, room, result);
+  await refreshAndBroadcastActivitySupport(io, {
+    userID: socket.data.authUserID,
+    timeZoneIdentifier: envelope?.context?.timeZoneIdentifier,
+  });
+}
+
+async function emitDeleteAndRefreshSupport({ io, socket, room, result, envelope }) {
+  io.to(room).emit(IN.nodeDeleted, { nodeID: { rawValue: result.nodeID }, revision: result.revision });
+  await refreshAndBroadcastActivitySupport(io, {
+    userID: socket.data.authUserID,
+    timeZoneIdentifier: envelope?.context?.timeZoneIdentifier,
+  });
+}
+
 async function persistActivityMutationWithProgress({
   client,
   dayMap,
@@ -143,6 +189,7 @@ async function persistActivityMutationWithProgress({
     nowSecond: Number(dayMap.current_time_seconds ?? 0),
     evidence: { source: 'socket-activity-mutation' },
   });
+  await recordActivitySupportOutcome(client, { nodeID: result.nodeID, action });
   return { ...result, progressSnapshot: progress?.progressSnapshot ?? null };
 }
 
@@ -196,6 +243,10 @@ export function registerGameSocket(io) {
         const payload = assertObject(envelope.payload, 'payload');
         const mapDate = assertMapDate(payload.mapDate ?? envelope.context.mapDate);
         const timeZoneIdentifier = assertTimeZone(payload.timeZoneIdentifier ?? envelope.context.timeZoneIdentifier, 'timeZoneIdentifier');
+        if (config.activitySupportPlannerEnabled) {
+          const support = await refreshActivitySupportPlanForUser({ userID, timeZoneIdentifier });
+          socket.emit(IN.supportPlanState, support.state);
+        }
         const client = await pool.connect();
         try {
           const dayMap = await ensureDayMap(client, { userID, mapDate, timeZoneIdentifier });
@@ -255,41 +306,41 @@ export function registerGameSocket(io) {
 
     registerMutation(socket, io, OUT.nodeAdd,
       ({ client, dayMap, userID, context, payload }) => persistNode(client, { dayMap, userID, context, node: payload.node }),
-      ({ io, room, result }) => emitNode(io, room, result));
+      emitNodeAndRefreshSupport);
 
     registerMutation(socket, io, OUT.nodeUpdate,
       ({ client, dayMap, userID, context, payload }) => persistNode(client, { dayMap, userID, context, node: payload.node }),
-      ({ io, room, result }) => emitNode(io, room, result));
+      emitNodeAndRefreshSupport);
 
     registerMutation(socket, io, OUT.nodeDelete,
       ({ client, dayMap, payload }) => deleteNode(client, { dayMap, nodeID: payload.nodeID }),
-      async ({ io, room, result }) => io.to(room).emit(IN.nodeDeleted, { nodeID: { rawValue: result.nodeID }, revision: result.revision }));
+      emitDeleteAndRefreshSupport);
 
     for (const event of [OUT.activityJoin, OUT.activitySkip, OUT.activityComplete]) {
       registerMutation(socket, io, event,
         persistActivityMutationWithProgress,
-        ({ io, room, result }) => emitNode(io, room, result));
+        emitNodeAndRefreshSupport);
     }
 
     for (const event of [OUT.activityTaskUpdate, OUT.activityTaskReschedule]) {
       registerMutation(socket, io, event,
         ({ client, dayMap, userID, context, payload }) => persistActivityNode(client, { dayMap, userID, context, node: payload.node }),
-        ({ io, room, result }) => emitNode(io, room, result));
+        emitNodeAndRefreshSupport);
     }
 
     for (const event of [OUT.activityTaskSkip, OUT.activityTaskComplete]) {
       registerMutation(socket, io, event,
         persistActivityMutationWithProgress,
-        ({ io, room, result }) => emitNode(io, room, result));
+        emitNodeAndRefreshSupport);
     }
 
     registerMutation(socket, io, OUT.activityMealUpdate,
       ({ client, dayMap, userID, context, payload }) => persistActivityNode(client, { dayMap, userID, context, node: payload.node }),
-      ({ io, room, result }) => emitNode(io, room, result));
+      emitNodeAndRefreshSupport);
 
     registerMutation(socket, io, OUT.activityMealComplete,
       persistActivityMutationWithProgress,
-      ({ io, room, result }) => emitNode(io, room, result));
+      emitNodeAndRefreshSupport);
 
     registerMutation(socket, io, OUT.activityMealSkip,
       async ({ client, dayMap, userID, context, payload }) => {
@@ -303,15 +354,19 @@ export function registerGameSocket(io) {
           nowSecond: Number(dayMap.current_time_seconds ?? 0),
           evidence: { source: 'socket-activity-meal-skip' },
         });
+        await recordActivitySupportOutcome(client, {
+          nodeID: persisted.nodeID,
+          action: payload.action ?? 'skip',
+        });
         const deleted = await deleteNode(client, { dayMap, nodeID: skippedNode?.id });
         return { ...deleted, progressSnapshot: progress?.progressSnapshot ?? null };
       },
-      async ({ io, room, result }) => io.to(room).emit(IN.nodeDeleted, { nodeID: { rawValue: result.nodeID }, revision: result.revision }));
+      emitDeleteAndRefreshSupport);
 
     for (const event of [OUT.activityWorkoutUpdate, OUT.activityWorkoutSelect, OUT.activityWorkoutReschedule]) {
       registerMutation(socket, io, event,
         ({ client, dayMap, userID, context, payload }) => persistActivityNode(client, { dayMap, userID, context, node: payload.node }),
-        ({ io, room, result }) => emitNode(io, room, result));
+        emitNodeAndRefreshSupport);
     }
 
     registerMutation(socket, io, OUT.activityWorkoutCheckIn,
@@ -341,6 +396,34 @@ export function registerGameSocket(io) {
     registerMutation(socket, io, OUT.hyperlinkVote,
       ({ client, dayMap, userID, payload }) => persistHyperlinkVote(client, { dayMap, userID, nodeID: payload.nodeID, vote: payload.vote }),
       null);
+
+    socket.on(OUT.supportPlanRefresh, async (rawEnvelope, callback) => {
+      const ack = ackOnce(callback);
+      try {
+        const userID = requireAuth(socket);
+        const envelope = parseEnvelope(rawEnvelope);
+        const timeZoneIdentifier = assertTimeZone(envelope.context.timeZoneIdentifier, 'timeZoneIdentifier');
+        const result = await refreshActivitySupportPlanForUser({
+          userID,
+          timeZoneIdentifier,
+          horizonHours: envelope.payload?.horizonHours ?? config.activitySupportHorizonHours,
+        });
+        for (const change of result.changes ?? []) {
+          const room = dayRoom(userID, change.mapDate);
+          for (const node of change.upsertedNodes ?? []) {
+            io.to(room).emit(IN.nodeUpserted, { node, revision: change.revision });
+          }
+          for (const nodeID of change.deletedNodeIDs ?? []) {
+            io.to(room).emit(IN.nodeDeleted, { nodeID: { rawValue: nodeID }, revision: change.revision });
+          }
+          if (change.dayPlanState) io.to(room).emit(IN.dayPlanState, change.dayPlanState);
+        }
+        io.to(userRoom(userID)).emit(IN.supportPlanState, result.state);
+        ack(successAck(null, null));
+      } catch (error) {
+        ack(failureAck(error));
+      }
+    });
 
     // Pass 5.43: route geometry is now constructed on the backend. The iOS
     // client can request an automatic build, attach a newly-created stop, or
@@ -394,7 +477,7 @@ export function registerGameSocket(io) {
           routeAttachmentRecovered: routeResult.routeAttachmentRecovered ?? false,
         };
       },
-      async ({ io, room, result, envelope }) => {
+      async ({ io, socket, room, result, envelope }) => {
         await emitNode(io, room, result);
 
         if (result.routeState) {
@@ -425,6 +508,14 @@ export function registerGameSocket(io) {
             requestID: envelope?.context?.requestID ?? null,
           });
         }
+
+        // Add Stop can persist a future meal through routeAttachNode rather than
+        // nodeAdd. Refresh support planning here too so both creation paths
+        // produce the same preparation chain.
+        await refreshAndBroadcastActivitySupport(io, {
+          userID: socket.data.authUserID,
+          timeZoneIdentifier: envelope?.context?.timeZoneIdentifier,
+        });
       });
 
     registerMutation(socket, io, OUT.routeSelect,

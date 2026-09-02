@@ -83,6 +83,15 @@ export function sanitizeCandidateFeatures(candidate = {}) {
     dependencyCount: Array.isArray(candidate.dependencies) ? candidate.dependencies.length : 0,
     availabilityWindowCount: Array.isArray(candidate.availabilityWindows) ? candidate.availabilityWindows.length : 0,
     progressCategory: candidate.progressCategory == null ? null : String(candidate.progressCategory),
+    // Phase 7 MVP support-planning fields are intentionally categorical and
+    // identifier-minimized. The current Phase 5 model ignores them; retaining
+    // them here creates training evidence for a later prerequisite model.
+    isSupportAction: candidate.isSupportAction === true,
+    supportRuleKey: candidate.supportRuleKey == null ? null : String(candidate.supportRuleKey),
+    supportRelationshipType: candidate.supportRelationshipType == null
+      ? null
+      : String(candidate.supportRelationshipType),
+    supportConfidence: numberOrNull(candidate.supportConfidence),
   };
 }
 

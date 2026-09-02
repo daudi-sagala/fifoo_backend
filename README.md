@@ -313,3 +313,16 @@ npm run rollback:phase6
 ```
 
 Production automation is enabled with `PREDICTION_MODEL_OPS_ENABLED=true`. Keep `PREDICTION_RUNTIME_MODE=shadow` for observation-only operation; set it to `active` once to authorize the database-controlled automatic canary lifecycle.
+
+## Phase 7 MVP — future activity support planning
+
+Backend v0.8.0 adds a deterministic rolling prerequisite graph beside the authoritative Day Graph. The first rule family supports future home-made meals by scheduling grocery/prep tasks into available earlier time, preserving an explainable target relationship and feeding prediction-ready learning data.
+
+See `docs/PHASE7_ACTIVITY_SUPPORT_PLANNING_MVP.md` and `PHASE7_COMPLETION.md`.
+
+```bash
+npm run migrate
+npm run check
+npm test
+npm run verify:phase7
+```

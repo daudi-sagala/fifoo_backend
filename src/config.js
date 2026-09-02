@@ -105,6 +105,14 @@ export const config = Object.freeze(validateRuntimeConfig({
   dailyPathSchedulerIntervalMs: Math.max(60_000, Math.min(intEnv('DAILY_PATH_SCHEDULER_INTERVAL_MS', 300_000), 3_600_000)),
   dailyPathSchedulerStartupDelayMs: Math.max(0, Math.min(intEnv('DAILY_PATH_SCHEDULER_STARTUP_DELAY_MS', 15_000), 300_000)),
 
+  // Phase 7 MVP activity-support planner. The rule engine is deliberately
+  // deterministic while it collects feedback for later learned prerequisite models.
+  activitySupportPlannerEnabled: boolEnv('ACTIVITY_SUPPORT_PLANNER_ENABLED', true),
+  activitySupportHorizonHours: Math.max(24, Math.min(intEnv('ACTIVITY_SUPPORT_HORIZON_HOURS', 72), 168)),
+  activitySupportSchedulerEnabled: boolEnv('ACTIVITY_SUPPORT_SCHEDULER_ENABLED', nodeEnv === 'production'),
+  activitySupportSchedulerIntervalMs: Math.max(300_000, Math.min(intEnv('ACTIVITY_SUPPORT_SCHEDULER_INTERVAL_MS', 900_000), 3_600_000)),
+  activitySupportSchedulerStartupDelayMs: Math.max(0, Math.min(intEnv('ACTIVITY_SUPPORT_SCHEDULER_STARTUP_DELAY_MS', 120_000), 600_000)),
+
   // Phase 5 prediction rollout is dual-gated: this process-level mode is the
   // maximum authority the model may receive, while the database deployment
   // record must also be shadow/active. Production defaults to shadow.
