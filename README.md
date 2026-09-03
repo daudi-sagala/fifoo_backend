@@ -326,3 +326,10 @@ npm run check
 npm test
 npm run verify:phase7
 ```
+
+## Adaptive Route Freshness Scheduler
+
+Backend v0.10.0 adds a five-minute live-route freshness evaluator. The cadence is intentionally not a five-minute unconditional reroute: missed activity windows, at-risk windows, or materially degraded expected finish can publish a new future-only authoritative Day Graph, while healthy routes remain unchanged. Completed history is still immutable and successful automatic reroutes increment the normal Day Map revision before broadcasting `game:day-plan:state`.
+
+See `docs/ADAPTIVE_ROUTE_FRESHNESS_MVP.md` and `ADAPTIVE_ROUTE_FRESHNESS_COMPLETION.md`.
+

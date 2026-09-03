@@ -12,6 +12,7 @@ import { requestContext, requireHTTPS, securityHeaders } from './http/security.j
 import { createRateLimiter, makeSocketConnectionLimiter } from './http/rateLimit.js';
 import { startDailyPathScheduler, stopDailyPathScheduler } from './services/dailyPathScheduler.js';
 import { startActivitySupportScheduler, stopActivitySupportScheduler } from './services/activitySupportScheduler.js';
+import { startAdaptiveRouteFreshnessScheduler, stopAdaptiveRouteFreshnessScheduler } from './services/adaptiveRouteFreshnessScheduler.js';
 import { startPredictionModelOpsScheduler, stopPredictionModelOpsScheduler } from './services/modelOpsScheduler.js';
 
 const app = express();
@@ -136,11 +137,13 @@ server.listen(config.port, () => {
     authMode: config.authMode,
     schedulerEnabled: config.dailyPathSchedulerEnabled,
     activitySupportSchedulerEnabled: config.activitySupportSchedulerEnabled,
+    adaptiveRouteFreshnessSchedulerEnabled: config.adaptiveRouteFreshnessSchedulerEnabled,
     predictionModelOpsEnabled: config.predictionModelOpsEnabled,
     predictionRuntimeMode: config.predictionRuntimeMode,
   });
   startDailyPathScheduler();
   startActivitySupportScheduler(io);
+  startAdaptiveRouteFreshnessScheduler(io);
   startPredictionModelOpsScheduler();
 });
 
@@ -151,6 +154,7 @@ async function shutdown(signal) {
   logger.info('server shutdown started', { signal });
   stopDailyPathScheduler();
   stopActivitySupportScheduler();
+  stopAdaptiveRouteFreshnessScheduler();
   stopPredictionModelOpsScheduler();
   io.close();
   server.close(async () => {

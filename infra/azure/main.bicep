@@ -155,6 +155,10 @@ resource app 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'DAILY_PATH_SCHEDULER_ENABLED', value: 'true' }
         { name: 'DAILY_PATH_SCHEDULER_INTERVAL_MS', value: '300000' }
         { name: 'DAILY_PATH_SCHEDULER_STARTUP_DELAY_MS', value: '15000' }
+        { name: 'ADAPTIVE_ROUTE_FRESHNESS_SCHEDULER_ENABLED', value: 'true' }
+        { name: 'ADAPTIVE_ROUTE_FRESHNESS_SCHEDULER_INTERVAL_MS', value: '300000' }
+        { name: 'ADAPTIVE_ROUTE_FRESHNESS_SCHEDULER_STARTUP_DELAY_MS', value: '90000' }
+        { name: 'ADAPTIVE_ROUTE_FRESHNESS_COOLDOWN_MS', value: '900000' }
         { name: 'LOG_LEVEL', value: 'info' }
         { name: 'LOG_APPLICATION_ACTIONS', value: 'false' }
         { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }

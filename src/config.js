@@ -113,6 +113,20 @@ export const config = Object.freeze(validateRuntimeConfig({
   activitySupportSchedulerIntervalMs: Math.max(300_000, Math.min(intEnv('ACTIVITY_SUPPORT_SCHEDULER_INTERVAL_MS', 900_000), 3_600_000)),
   activitySupportSchedulerStartupDelayMs: Math.max(0, Math.min(intEnv('ACTIVITY_SUPPORT_SCHEDULER_STARTUP_DELAY_MS', 120_000), 600_000)),
 
+  // Adaptive Route Freshness — evaluate the live route frequently, but only
+  // publish a new future plan when a material stale-route trigger is present.
+  adaptiveRouteFreshnessSchedulerEnabled: boolEnv('ADAPTIVE_ROUTE_FRESHNESS_SCHEDULER_ENABLED', nodeEnv === 'production'),
+  adaptiveRouteFreshnessSchedulerIntervalMs: Math.max(60_000, Math.min(intEnv('ADAPTIVE_ROUTE_FRESHNESS_SCHEDULER_INTERVAL_MS', 300_000), 3_600_000)),
+  adaptiveRouteFreshnessSchedulerStartupDelayMs: Math.max(0, Math.min(intEnv('ADAPTIVE_ROUTE_FRESHNESS_SCHEDULER_STARTUP_DELAY_MS', 90_000), 600_000)),
+  adaptiveRouteFreshnessCooldownMs: Math.max(60_000, Math.min(intEnv('ADAPTIVE_ROUTE_FRESHNESS_COOLDOWN_MS', 900_000), 7_200_000)),
+  adaptiveRouteFreshnessMissedGraceSeconds: Math.max(0, Math.min(intEnv('ADAPTIVE_ROUTE_FRESHNESS_MISSED_GRACE_SECONDS', 300), 7_200)),
+  adaptiveRouteFreshnessAtRiskWindowSeconds: Math.max(60, Math.min(intEnv('ADAPTIVE_ROUTE_FRESHNESS_AT_RISK_WINDOW_SECONDS', 600), 7_200)),
+  adaptiveRouteFreshnessMaxShiftSeconds: Math.max(300, Math.min(intEnv('ADAPTIVE_ROUTE_FRESHNESS_MAX_SHIFT_SECONDS', 7_200), 21_600)),
+  adaptiveRouteFreshnessRebaseBufferSeconds: Math.max(0, Math.min(intEnv('ADAPTIVE_ROUTE_FRESHNESS_REBASE_BUFFER_SECONDS', 60), 1_800)),
+  adaptiveRouteFreshnessMinimumRemainingSeconds: Math.max(60, Math.min(intEnv('ADAPTIVE_ROUTE_FRESHNESS_MIN_REMAINING_SECONDS', 900), 7_200)),
+  adaptiveRouteFreshnessMinimumExpectedDayFinish: Math.max(0.10, Math.min(numberEnv('ADAPTIVE_ROUTE_FRESHNESS_MIN_EXPECTED_DAY_FINISH', 0.60), 0.99)),
+  adaptiveRouteFreshnessMinimumProjectionCandidateCount: Math.max(1, Math.min(intEnv('ADAPTIVE_ROUTE_FRESHNESS_MIN_PROJECTION_CANDIDATES', 2), 20)),
+
   // Phase 5 prediction rollout is dual-gated: this process-level mode is the
   // maximum authority the model may receive, while the database deployment
   // record must also be shadow/active. Production defaults to shadow.
