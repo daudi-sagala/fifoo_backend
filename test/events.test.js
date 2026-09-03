@@ -4,6 +4,7 @@ import { OUT, IN } from '../src/events.js';
 
 const expectedOutgoing = [
   'game:auth','game:sync:request','game:application:action',
+  'game:onboarding:state:request','game:onboarding:start','game:onboarding:update','game:onboarding:preview','game:onboarding:complete',
   'game:node:add','game:node:update','game:node:delete',
   'game:activity:join','game:activity:skip','game:activity:complete',
   'game:activity:task:update','game:activity:task:reschedule','game:activity:task:skip','game:activity:task:complete',
@@ -23,6 +24,7 @@ const expectedOutgoing = [
 
 const expectedIncoming = [
   'game:sync:snapshot','game:node:upserted','game:node:deleted','game:tile:reveal:state','game:route:state','game:day-plan:state','game:support-plan:state',
+  'game:onboarding:state','game:onboarding:preview:state','game:onboarding:completed',
   'game:search:results','game:play:workouts','game:play:workout','game:play:message','game:play:messages','game:play:reaction',
   'game:social:conversations','game:social:conversation:opened','game:social:conversation:messages','game:social:conversation:message',
   'game:social:friends','game:social:posts','game:social:post:saved','game:social:post:replies','game:social:post:reply','game:error',

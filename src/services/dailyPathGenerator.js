@@ -119,6 +119,7 @@ function buildMealContent({ userID, mapDate, rules, stop, startSeconds, endSecon
               sourceCount: 0,
             },
           ],
+          ...(stop.executionPlan ? { executionPlan: stop.executionPlan } : {}),
         },
       },
     },
@@ -410,6 +411,7 @@ export async function generateDailyPathForUser(client, {
       mode: 'cold-start',
       timeZoneIdentifier: validatedTimeZone,
       decisionType: 'initial_day_plan',
+      ...(rules.dayContext ?? {}),
     },
   });
   const predictedByKey = new Map(
@@ -449,6 +451,7 @@ export async function generateDailyPathForUser(client, {
       mode: 'cold-start',
       timeZoneIdentifier: validatedTimeZone,
       populationPriorFallback: 0.65,
+      ...(rules.dayContext ?? {}),
     },
     decisionSummary: {
       generatedStopCount: plan.nodes.length,
@@ -482,6 +485,7 @@ export async function generateDailyPathForUser(client, {
     routingContext: {
       mode: 'cold-start',
       timeZoneIdentifier: validatedTimeZone,
+      ...(rules.dayContext ?? {}),
     },
     candidates: scoredLearningCandidates,
     routes: [routeObservation(plan.dayGraph.chosenPath, 0, { selected: true, routeKind: 'chosen' })],

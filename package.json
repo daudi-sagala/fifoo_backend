@@ -1,6 +1,6 @@
 {
   "name": "fifoo-game-backend",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,7 +20,8 @@
     "run:model-ops": "node scripts/run-model-ops.js",
     "verify:phase6": "node scripts/verify-phase6-model-ops.js",
     "rollback:phase6": "node scripts/rollback-phase6-model.js",
-    "verify:phase7": "node scripts/verify-phase7-support-planning.js"
+    "verify:phase7": "node scripts/verify-phase7-support-planning.js",
+    "verify:phase8": "node scripts/verify-phase8-onboarding.js"
   },
   "engines": {
     "node": ">=22"

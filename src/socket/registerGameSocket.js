@@ -1,4 +1,4 @@
-import { pool } from '../db.js';
+import { pool, withTransaction } from '../db.js';
 import { createTokenWindow } from '../http/rateLimit.js';
 import { config } from '../config.js';
 import { authenticateGameSocket } from '../auth.js';
@@ -45,6 +45,7 @@ import {
 } from '../services/socialHub.js';
 import { loadAuthoritativeDayPlanState, recordNodeProgressOutcome, rerouteFutureDayPlan } from '../services/dayPlanning.js';
 import { recordActivitySupportOutcome, refreshActivitySupportPlanForUser } from '../services/activitySupportPlanner.js';
+import { completeOnboarding, loadOnboardingState, previewOnboardingRoute, startOnboarding, updateOnboarding } from '../services/onboarding.js';
 
 
 const mutationRateLimiter = createTokenWindow({
@@ -233,6 +234,106 @@ export function registerGameSocket(io) {
         ack(failureAck(error));
       } finally {
         client?.release();
+      }
+    });
+
+    // Phase 8 — gamified onboarding. These events are authenticated but do not
+    // require an existing Day Map snapshot; onboarding is what creates the
+    // first personalized route for a new player.
+    socket.on(OUT.onboardingStateRequest, async (_rawPayload, callback) => {
+      const ack = ackOnce(callback);
+      let client;
+      try {
+        const userID = requireAuth(socket);
+        client = await pool.connect();
+        const state = await loadOnboardingState(client, userID);
+        socket.emit(IN.onboardingState, state);
+        ack(successAck(null, null));
+      } catch (error) {
+        ack(failureAck(error));
+      } finally {
+        client?.release();
+      }
+    });
+
+    socket.on(OUT.onboardingStart, async (rawPayload, callback) => {
+      const ack = ackOnce(callback);
+      try {
+        const userID = requireAuth(socket);
+        const payload = assertObject(rawPayload ?? {}, 'onboarding start payload');
+        const state = await withTransaction((client) => startOnboarding(client, { userID, payload }));
+        io.to(userRoom(userID)).emit(IN.onboardingState, state);
+        ack(successAck(null, null));
+      } catch (error) {
+        ack(failureAck(error));
+      }
+    });
+
+    socket.on(OUT.onboardingUpdate, async (rawPayload, callback) => {
+      const ack = ackOnce(callback);
+      try {
+        const userID = requireAuth(socket);
+        const payload = assertObject(rawPayload ?? {}, 'onboarding update payload');
+        const state = await withTransaction((client) => updateOnboarding(client, {
+          userID,
+          stage: payload.stage,
+          payload: payload.payload ?? {},
+        }));
+        io.to(userRoom(userID)).emit(IN.onboardingState, state);
+        ack(successAck(null, null));
+      } catch (error) {
+        ack(failureAck(error));
+      }
+    });
+
+    socket.on(OUT.onboardingPreview, async (rawPayload, callback) => {
+      const ack = ackOnce(callback);
+      try {
+        const userID = requireAuth(socket);
+        const payload = assertObject(rawPayload ?? {}, 'onboarding preview payload');
+        const mapDate = assertMapDate(payload.mapDate);
+        const timeZoneIdentifier = assertTimeZone(payload.timeZoneIdentifier, 'timeZoneIdentifier');
+        const result = await withTransaction(async (client) => {
+          const preview = await previewOnboardingRoute(client, { userID, mapDate, timeZoneIdentifier });
+          const state = await loadOnboardingState(client, userID);
+          return { preview, state };
+        });
+        socket.emit(IN.onboardingPreviewState, result.preview);
+        socket.emit(IN.onboardingState, result.state);
+        ack(successAck(null, null));
+      } catch (error) {
+        ack(failureAck(error));
+      }
+    });
+
+    socket.on(OUT.onboardingComplete, async (rawPayload, callback) => {
+      const ack = ackOnce(callback);
+      try {
+        const userID = requireAuth(socket);
+        const payload = assertObject(rawPayload ?? {}, 'onboarding complete payload');
+        const mapDate = assertMapDate(payload.mapDate);
+        const timeZoneIdentifier = assertTimeZone(payload.timeZoneIdentifier, 'timeZoneIdentifier');
+        const currentDayTimeSeconds = Number(payload.currentDayTimeSeconds ?? 0);
+
+        const result = await withTransaction((client) => completeOnboarding(client, {
+          userID,
+          mapDate,
+          timeZoneIdentifier,
+          currentDayTimeSeconds,
+          predictionRuntimeMode: config.predictionRuntimeMode,
+        }));
+
+        io.to(userRoom(userID)).emit(IN.onboardingState, result.state);
+        socket.emit(IN.snapshot, result.snapshot);
+        if (result.dayPlanState) socket.emit(IN.dayPlanState, result.dayPlanState);
+        io.to(userRoom(userID)).emit(IN.onboardingCompleted, result.completion);
+
+        // Phase 7 remains the prerequisite authority. This second transaction
+        // can add grocery/prep support nodes and future-only reroute state.
+        await refreshAndBroadcastActivitySupport(io, { userID, timeZoneIdentifier });
+        ack(successAck(null, null));
+      } catch (error) {
+        ack(failureAck(error));
       }
     });
 

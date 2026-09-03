@@ -3,6 +3,13 @@ export const OUT = Object.freeze({
   requestSnapshot: 'game:sync:request',
   applicationAction: 'game:application:action',
 
+  // Phase 8 gamified onboarding
+  onboardingStateRequest: 'game:onboarding:state:request',
+  onboardingStart: 'game:onboarding:start',
+  onboardingUpdate: 'game:onboarding:update',
+  onboardingPreview: 'game:onboarding:preview',
+  onboardingComplete: 'game:onboarding:complete',
+
   nodeAdd: 'game:node:add',
   nodeUpdate: 'game:node:update',
   nodeDelete: 'game:node:delete',
@@ -81,6 +88,9 @@ export const IN = Object.freeze({
   routeState: 'game:route:state',
   dayPlanState: 'game:day-plan:state',
   supportPlanState: 'game:support-plan:state',
+  onboardingState: 'game:onboarding:state',
+  onboardingPreviewState: 'game:onboarding:preview:state',
+  onboardingCompleted: 'game:onboarding:completed',
   searchResults: 'game:search:results',
   workoutCatalog: 'game:play:workouts',
   workout: 'game:play:workout',

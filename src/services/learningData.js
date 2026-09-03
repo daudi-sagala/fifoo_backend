@@ -48,6 +48,18 @@ export function sanitizeLearningContext(context = {}) {
     sleepSecond: numberOrNull(context.sleepSecond),
     availabilityWindows,
     hardBusyIntervals,
+    // Phase 8 onboarding context is deliberately identifier-free and compact.
+    // The current Phase 5 feature vector may ignore these fields; retaining
+    // them creates clean evidence for later personalization experiments.
+    onboardingVersion: numberOrNull(context.onboardingVersion),
+    playerStyle: context.playerStyle == null ? null : String(context.playerStyle),
+    difficulty: context.difficulty == null ? null : String(context.difficulty),
+    selfReportedObstacleCount: Array.isArray(context.selfReportedObstacles)
+      ? context.selfReportedObstacles.length
+      : numberOrNull(context.selfReportedObstacleCount),
+    preferredInterventionCount: Array.isArray(context.preferredInterventions)
+      ? context.preferredInterventions.length
+      : numberOrNull(context.preferredInterventionCount),
   };
   return Object.fromEntries(Object.entries(result).filter(([, value]) => value != null));
 }

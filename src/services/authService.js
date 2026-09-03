@@ -94,6 +94,20 @@ export async function signup(client, payload) {
        RETURNING user_id,username,first_name,last_name,email,joined`,
       [username, firstName, lastName, email, passwordHash],
     );
+
+    // Phase 8: only newly-created accounts enter the gamified onboarding.
+    // The migration backfills existing accounts as completed_legacy.
+    await client.query(
+      `INSERT INTO user_game_profiles(user_id,onboarding_status,onboarding_version)
+       VALUES ($1,'not_started',1)
+       ON CONFLICT(user_id) DO UPDATE SET
+         onboarding_status='not_started',onboarding_version=1,onboarding_completed_at=NULL,updated_at=NOW()`,
+      [result.rows[0].user_id],
+    );
+    await client.query(
+      `INSERT INTO user_game_progress(user_id) VALUES ($1) ON CONFLICT(user_id) DO NOTHING`,
+      [result.rows[0].user_id],
+    );
     return result.rows[0];
   } catch (error) {
     if (error?.code === '23505') {
