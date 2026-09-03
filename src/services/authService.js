@@ -30,6 +30,15 @@ function cleanText(value, maxLength) {
   return text ? text.slice(0, maxLength) : null;
 }
 
+function optionalWeight(value, label) {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 70 || number > 700) {
+    throw new GameError('invalid_payload', `${label} must be between 70 and 700 lb.`);
+  }
+  return number;
+}
+
 function randomOpaqueToken(prefix, bytes) {
   return `${prefix}${crypto.randomBytes(bytes).toString('base64url')}`;
 }
@@ -88,6 +97,11 @@ export async function signup(client, payload) {
   const passwordHash = await hashPassword(payload.password);
   const firstName = cleanText(payload.firstName, 100);
   const lastName = cleanText(payload.lastName, 100);
+  const currentWeightLB = optionalWeight(payload.currentWeightLB, 'Current weight');
+  const goalWeightLB = optionalWeight(payload.goalWeightLB, 'Goal weight');
+  if (currentWeightLB != null && goalWeightLB != null && goalWeightLB >= currentWeightLB) {
+    throw new GameError('invalid_payload', 'Goal weight must be below current weight.');
+  }
 
   try {
     const result = await client.query(
@@ -97,14 +111,21 @@ export async function signup(client, payload) {
       [username, firstName, lastName, email, passwordHash],
     );
 
-    // Phase 8: only newly-created accounts enter the gamified onboarding.
-    // The migration backfills existing accounts as completed_legacy.
+    // Onboarding now ends at successful signup. Persist the pre-signup weight
+    // coordinates here and mark the new player complete immediately; there is
+    // no authenticated questionnaire phase after account creation.
     await client.query(
-      `INSERT INTO user_game_profiles(user_id,onboarding_status,onboarding_version)
-       VALUES ($1,'not_started',1)
+      `INSERT INTO user_game_profiles(
+         user_id,onboarding_status,onboarding_version,current_weight_lb,goal_weight_lb,onboarding_completed_at
+       ) VALUES ($1,'completed',1,$2,$3,NOW())
        ON CONFLICT(user_id) DO UPDATE SET
-         onboarding_status='not_started',onboarding_version=1,onboarding_completed_at=NULL,updated_at=NOW()`,
-      [result.rows[0].user_id],
+         onboarding_status='completed',
+         onboarding_version=1,
+         current_weight_lb=EXCLUDED.current_weight_lb,
+         goal_weight_lb=EXCLUDED.goal_weight_lb,
+         onboarding_completed_at=NOW(),
+         updated_at=NOW()`,
+      [result.rows[0].user_id, currentWeightLB, goalWeightLB],
     );
     await client.query(
       `INSERT INTO user_game_progress(user_id) VALUES ($1) ON CONFLICT(user_id) DO NOTHING`,
