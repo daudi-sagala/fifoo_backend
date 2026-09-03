@@ -113,6 +113,10 @@ export const config = Object.freeze(validateRuntimeConfig({
   activitySupportSchedulerIntervalMs: Math.max(300_000, Math.min(intEnv('ACTIVITY_SUPPORT_SCHEDULER_INTERVAL_MS', 900_000), 3_600_000)),
   activitySupportSchedulerStartupDelayMs: Math.max(0, Math.min(intEnv('ACTIVITY_SUPPORT_SCHEDULER_STARTUP_DELAY_MS', 120_000), 600_000)),
 
+  // Progressive route-knowledge encounters. The server chooses the highest-value
+  // missing question; iOS only renders the supplied encounter contract.
+  routeKnowledgeEncountersEnabled: boolEnv('ROUTE_KNOWLEDGE_ENCOUNTERS_ENABLED', true),
+
   // Adaptive Route Freshness — evaluate the live route frequently, but only
   // publish a new future plan when a material stale-route trigger is present.
   adaptiveRouteFreshnessSchedulerEnabled: boolEnv('ADAPTIVE_ROUTE_FRESHNESS_SCHEDULER_ENABLED', nodeEnv === 'production'),

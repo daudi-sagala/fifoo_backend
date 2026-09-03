@@ -10,6 +10,11 @@ export const OUT = Object.freeze({
   onboardingPreview: 'game:onboarding:preview',
   onboardingComplete: 'game:onboarding:complete',
 
+  // Progressive user route knowledge
+  routeKnowledgeEncounterRequest: 'game:route-knowledge:encounter:request',
+  routeKnowledgeEncounterAnswer: 'game:route-knowledge:encounter:answer',
+  routeKnowledgeEncounterDefer: 'game:route-knowledge:encounter:defer',
+
   nodeAdd: 'game:node:add',
   nodeUpdate: 'game:node:update',
   nodeDelete: 'game:node:delete',
@@ -91,6 +96,8 @@ export const IN = Object.freeze({
   onboardingState: 'game:onboarding:state',
   onboardingPreviewState: 'game:onboarding:preview:state',
   onboardingCompleted: 'game:onboarding:completed',
+  routeKnowledgeEncounter: 'game:route-knowledge:encounter',
+  routeKnowledgeResult: 'game:route-knowledge:result',
   searchResults: 'game:search:results',
   workoutCatalog: 'game:play:workouts',
   workout: 'game:play:workout',

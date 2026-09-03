@@ -46,6 +46,7 @@ import {
 import { loadAuthoritativeDayPlanState, recordNodeProgressOutcome, rerouteFutureDayPlan } from '../services/dayPlanning.js';
 import { recordActivitySupportOutcome, refreshActivitySupportPlanForUser } from '../services/activitySupportPlanner.js';
 import { completeOnboarding, loadOnboardingState, previewOnboardingRoute, startOnboarding, updateOnboarding } from '../services/onboarding.js';
+import { answerRouteKnowledgeEncounter, deferRouteKnowledgeEncounter, selectRouteKnowledgeEncounter } from '../services/routeKnowledge.js';
 
 
 const mutationRateLimiter = createTokenWindow({
@@ -332,6 +333,87 @@ export function registerGameSocket(io) {
         // can add grocery/prep support nodes and future-only reroute state.
         await refreshAndBroadcastActivitySupport(io, { userID, timeZoneIdentifier });
         ack(successAck(null, null));
+      } catch (error) {
+        ack(failureAck(error));
+      }
+    });
+
+    // Progressive route-knowledge encounters. These are intentionally separate
+    // from signup onboarding: Fifoo asks one high-value question at a good
+    // moment, then reduces frequency as the player's route profile fills in.
+    socket.on(OUT.routeKnowledgeEncounterRequest, async (rawEnvelope, callback) => {
+      const ack = ackOnce(callback);
+      if (!config.routeKnowledgeEncountersEnabled) {
+        ack(successAck(null, null, 'Route knowledge encounters are disabled.'));
+        return;
+      }
+      let client;
+      try {
+        const userID = requireAuth(socket);
+        const envelope = parseEnvelope(rawEnvelope);
+        const payload = assertObject(envelope.payload ?? {}, 'route knowledge request payload');
+        const mapDate = assertMapDate(payload.mapDate ?? envelope.context.mapDate);
+        const nowSecond = Math.max(0, Math.min(86_399, Number(payload.currentDayTimeSeconds ?? 0) || 0));
+        client = await pool.connect();
+        const encounter = await selectRouteKnowledgeEncounter(client, { userID, mapDate, nowSecond });
+        if (encounter) socket.emit(IN.routeKnowledgeEncounter, encounter);
+        ack(successAck(envelope.context.requestID ?? null, null, encounter ? 'Encounter ready.' : 'No encounter is due.'));
+      } catch (error) {
+        ack(failureAck(error));
+      } finally {
+        client?.release();
+      }
+    });
+
+    socket.on(OUT.routeKnowledgeEncounterAnswer, async (rawEnvelope, callback) => {
+      const ack = ackOnce(callback);
+      try {
+        const userID = requireAuth(socket);
+        const envelope = parseEnvelope(rawEnvelope);
+        const payload = assertObject(envelope.payload ?? {}, 'route knowledge answer payload');
+        const mapDate = assertMapDate(payload.mapDate ?? envelope.context.mapDate);
+        const timeZoneIdentifier = assertTimeZone(
+          payload.timeZoneIdentifier ?? envelope.context.timeZoneIdentifier,
+          'timeZoneIdentifier',
+        );
+        const encounterID = assertUUID(payload.encounterID, 'encounterID');
+        const optionIDs = Array.isArray(payload.optionIDs) ? payload.optionIDs.map(String) : [];
+        const decisionSecond = Math.max(0, Math.min(86_399, Number(payload.currentDayTimeSeconds ?? 0) || 0));
+
+        const outcome = await withTransaction((client) => answerRouteKnowledgeEncounter(client, {
+          userID,
+          encounterID,
+          optionIDs,
+          mapDate,
+          timeZoneIdentifier,
+          decisionSecond,
+          predictionRuntimeMode: config.predictionRuntimeMode,
+        }));
+
+        if (outcome.result) io.to(userRoom(userID)).emit(IN.routeKnowledgeResult, outcome.result);
+        if (outcome.dayPlanState) {
+          io.to(dayRoom(userID, mapDate)).emit(IN.dayPlanState, outcome.dayPlanState);
+        }
+        if (outcome.result?.routeImpact === 'support_planning') {
+          await refreshAndBroadcastActivitySupport(io, { userID, timeZoneIdentifier });
+        }
+        ack(successAck(envelope.context.requestID ?? null, outcome.revision ?? null));
+      } catch (error) {
+        ack(failureAck(error));
+      }
+    });
+
+    socket.on(OUT.routeKnowledgeEncounterDefer, async (rawEnvelope, callback) => {
+      const ack = ackOnce(callback);
+      try {
+        const userID = requireAuth(socket);
+        const envelope = parseEnvelope(rawEnvelope);
+        const payload = assertObject(envelope.payload ?? {}, 'route knowledge defer payload');
+        const encounterID = assertUUID(payload.encounterID, 'encounterID');
+        await withTransaction((client) => deferRouteKnowledgeEncounter(client, {
+          userID, encounterID, hours: payload.hours ?? 6,
+        }));
+        ack(successAck(envelope.context.requestID ?? null, null));
       } catch (error) {
         ack(failureAck(error));
       }

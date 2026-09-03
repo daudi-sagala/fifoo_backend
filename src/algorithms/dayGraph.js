@@ -57,15 +57,46 @@ function activityCategory(intervalKind) {
   }
 }
 
-function defaultFillerKind({ startSecond, endSecond, previous, next, context }) {
+function normalizedSleepWindows(context = {}) {
+  if (Array.isArray(context?.sleepWindows) && context.sleepWindows.length) {
+    return context.sleepWindows
+      .map((window) => ({
+        startSecond: Math.max(0, Math.min(DAY_END_SECOND, Math.trunc(finiteNumber(window?.startSecond, 0)))),
+        endSecond: Math.max(0, Math.min(DAY_END_SECOND, Math.trunc(finiteNumber(window?.endSecond, 0)))),
+      }))
+      .filter((window) => window.endSecond > window.startSecond)
+      .sort((a, b) => a.startSecond - b.startSecond);
+  }
+
   const wakeSecond = Math.max(0, Math.min(DAY_END_SECOND, Math.trunc(
     finiteNumber(context?.wakeSecond, 7 * 3600),
   )));
-  const sleepSecond = Math.max(wakeSecond, Math.min(DAY_END_SECOND, Math.trunc(
+  const sleepSecond = Math.max(0, Math.min(DAY_END_SECOND, Math.trunc(
     finiteNumber(context?.sleepSecond, 23 * 3600),
   )));
 
-  if (endSecond <= wakeSecond || startSecond >= sleepSecond) return 'sleep';
+  // Normal schedule: sleep starts late in the day and continues across midnight.
+  if (sleepSecond >= wakeSecond) {
+    return [
+      ...(wakeSecond > 0 ? [{ startSecond: 0, endSecond: wakeSecond }] : []),
+      ...(sleepSecond < DAY_END_SECOND ? [{ startSecond: sleepSecond, endSecond: DAY_END_SECOND }] : []),
+    ];
+  }
+
+  // Third-shift/day-sleep schedule: bedtime occurs earlier on the wall clock
+  // than wake time, so the primary sleep window is a daytime interval.
+  return [{ startSecond: sleepSecond, endSecond: wakeSecond }];
+}
+
+function intervalInsideAnyWindow(startSecond, endSecond, windows) {
+  return windows.some((window) => (
+    startSecond >= window.startSecond && endSecond <= window.endSecond
+  ));
+}
+
+function defaultFillerKind({ startSecond, endSecond, previous, next, context }) {
+  const sleepWindows = normalizedSleepWindows(context);
+  if (intervalInsideAnyWindow(startSecond, endSecond, sleepWindows)) return 'sleep';
 
   // Awake time is metabolically fasting whenever the user is not eating.
   // Workouts/tasks/travel remain the visible interval when they exist; only
@@ -206,10 +237,11 @@ function splitAtCycleHours(interval, cycleStartSecond, { idSeed, label }) {
   });
 }
 
-function splitForSleepClassification(interval, wakeSecond, sleepSecond, idSeed) {
+function splitForSleepClassification(interval, sleepWindows, idSeed) {
+  const boundaryValues = sleepWindows.flatMap((window) => [window.startSecond, window.endSecond]);
   const boundaries = [
     interval.startSecond,
-    ...[wakeSecond, sleepSecond].filter((value) => (
+    ...boundaryValues.filter((value) => (
       value > interval.startSecond && value < interval.endSecond
     )),
     interval.endSecond,
@@ -230,6 +262,21 @@ function splitForSleepClassification(interval, wakeSecond, sleepSecond, idSeed) 
       progressWeightHint: originalWeight * (segmentDuration / originalDuration),
     };
   });
+}
+
+function sleepCycleStartForPiece(piece, sleepWindows) {
+  const window = sleepWindows.find((candidate) => (
+    piece.startSecond >= candidate.startSecond && piece.endSecond <= candidate.endSecond
+  ));
+  if (!window) return null;
+
+  if (window.startSecond === 0) {
+    const previousNightWindow = [...sleepWindows]
+      .reverse()
+      .find((candidate) => candidate.endSecond === DAY_END_SECOND && candidate.startSecond > 0);
+    return previousNightWindow ? previousNightWindow.startSecond - DAY_END_SECOND : 0;
+  }
+  return window.startSecond;
 }
 
 function intervalsOverlap(startA, endA, startB, endB) {
@@ -287,12 +334,7 @@ function applyFastingTileVisibility(intervals) {
  * without resetting the metabolic clock.
  */
 function materializeSpecialHourlyIntervals(intervals, { idSeed, context = {} } = {}) {
-  const wakeSecond = Math.max(0, Math.min(DAY_END_SECOND, Math.trunc(
-    finiteNumber(context?.wakeSecond, 7 * 3600),
-  )));
-  const sleepSecond = Math.max(wakeSecond, Math.min(DAY_END_SECOND, Math.trunc(
-    finiteNumber(context?.sleepSecond, 23 * 3600),
-  )));
+  const sleepWindows = normalizedSleepWindows(context);
 
   const meals = intervals.filter((interval) => interval.intervalKind === 'meal');
   const inferredPriorMealEnd = meals.length
@@ -313,13 +355,13 @@ function materializeSpecialHourlyIntervals(intervals, { idSeed, context = {} } =
     if (interval.intervalKind === 'sleep') {
       const sleepPieces = splitForSleepClassification(
         interval,
-        wakeSecond,
-        sleepSecond,
+        sleepWindows,
         idSeed,
       );
 
       for (const sleepPiece of sleepPieces) {
-        const isNap = sleepPiece.startSecond >= wakeSecond && sleepPiece.endSecond <= sleepSecond;
+        const primarySleepCycleStart = sleepCycleStartForPiece(sleepPiece, sleepWindows);
+        const isNap = primarySleepCycleStart == null;
         const label = isNap ? 'nap' : 'sleep';
         let cycleStartSecond;
 
@@ -330,11 +372,8 @@ function materializeSpecialHourlyIntervals(intervals, { idSeed, context = {} } =
             napCycleStart = sleepPiece.startSecond;
           }
           cycleStartSecond = napCycleStart;
-        } else if (sleepPiece.endSecond <= wakeSecond) {
-          cycleStartSecond = sleepSecond - DAY_END_SECOND;
-          napCycleStart = null;
         } else {
-          cycleStartSecond = sleepSecond;
+          cycleStartSecond = primarySleepCycleStart;
           napCycleStart = null;
         }
 
@@ -378,10 +417,8 @@ function applyMetabolicContexts(intervals) {
 }
 
 function fillerBoundaries(startSecond, endSecond, context) {
-  const candidates = [
-    Math.trunc(finiteNumber(context?.wakeSecond, 7 * 3600)),
-    Math.trunc(finiteNumber(context?.sleepSecond, 23 * 3600)),
-  ];
+  const candidates = normalizedSleepWindows(context)
+    .flatMap((window) => [window.startSecond, window.endSecond]);
   return [
     startSecond,
     ...candidates.filter((value) => value > startSecond && value < endSecond),

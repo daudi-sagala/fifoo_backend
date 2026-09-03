@@ -120,6 +120,7 @@ function buildMealContent({ userID, mapDate, rules, stop, startSeconds, endSecon
             },
           ],
           ...(stop.executionPlan ? { executionPlan: stop.executionPlan } : {}),
+          ...(stop.routeKnowledge ? { routeKnowledge: stop.routeKnowledge } : {}),
         },
       },
     },
@@ -300,6 +301,160 @@ async function generatedNodesStillExist(client, dayMapID, nodeIDs) {
  */
 
 
+
+function ruleClock(secondsValue) {
+  const seconds = Math.max(0, Math.min(86_399, Math.trunc(Number(secondsValue) || 0)));
+  const hour = Math.floor(seconds / 3600);
+  const minute = Math.floor((seconds % 3600) / 60);
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function overlapsAny(startSecond, endSecond, intervals = []) {
+  return intervals.some((interval) => (
+    startSecond < Number(interval.endSecond) && Number(interval.startSecond) < endSecond
+  ));
+}
+
+function knowledgeSelections(value) {
+  return Array.isArray(value?.selections)
+    ? value.selections.map((entry) => String(entry?.key ?? '')).filter(Boolean)
+    : [];
+}
+
+async function userRouteKnowledgeProfile(client, userID) {
+  const [knowledgeRows, workRows] = await Promise.all([
+    client.query(
+      'SELECT knowledge_key,knowledge_value FROM user_route_knowledge WHERE user_id=$1',
+      [userID],
+    ),
+    client.query(
+      `SELECT preference_data FROM user_schedule_preferences
+        WHERE user_id=$1 AND schedule_key='work' LIMIT 1`,
+      [userID],
+    ),
+  ]);
+  return {
+    knowledge: Object.fromEntries(
+      knowledgeRows.rows.map((row) => [String(row.knowledge_key), row.knowledge_value ?? {}]),
+    ),
+    work: workRows.rows[0]?.preference_data ?? null,
+  };
+}
+
+function workBusyWindows(work) {
+  if (work?.type !== 'fixed') return [];
+  const start = parseClock(work.startTime);
+  const end = parseClock(work.endTime);
+  if (start === end) return [];
+  if (end > start) return [{ startSecond: start, endSecond: end }];
+  return [
+    { startSecond: 0, endSecond: end },
+    { startSecond: start, endSecond: 86_400 },
+  ];
+}
+
+function nearestAvailableStart(preferred, durationSeconds, occupied) {
+  const step = 15 * 60;
+  const maxDelta = 16 * 3600;
+  for (let delta = 0; delta <= maxDelta; delta += step) {
+    const options = delta === 0 ? [preferred] : [preferred + delta, preferred - delta];
+    for (const candidate of options) {
+      const start = Math.max(0, Math.min(86_400 - durationSeconds, Math.trunc(candidate)));
+      const end = start + durationSeconds;
+      if (!overlapsAny(start, end, occupied)) return start;
+    }
+  }
+  return preferred;
+}
+
+function personalizeRulesFromRouteKnowledge(rules, profile, dayContext) {
+  const knowledge = profile?.knowledge ?? {};
+  const workBusy = workBusyWindows(profile?.work);
+  const sleepBusy = Array.isArray(dayContext?.sleepWindows) ? dayContext.sleepWindows : [];
+  const dietStyle = String(knowledge.diet_style?.key ?? knowledge.diet_style?.optionID ?? '');
+  const allergies = knowledgeSelections(knowledge.food_allergies).filter((key) => key !== 'none');
+  const gymAvailable = knowledge.gym_access?.available;
+  const cookingFrequency = String(knowledge.cooking_frequency?.frequency ?? '');
+  const groceryReadiness = String(knowledge.groceries_readiness?.key ?? '');
+
+  let stops = rules.stops.map((stop) => {
+    const next = { ...stop };
+    if (next.kind === 'meal') {
+      next.routeKnowledge = {
+        dietStyle: dietStyle || null,
+        allergyConstraints: allergies,
+      };
+      if (dietStyle && !['omnivore', 'other'].includes(dietStyle)) {
+        const prefix = dietStyle === 'low_carb' ? 'Lower-carb' : `${dietStyle[0].toUpperCase()}${dietStyle.slice(1)}`;
+        next.title = `${prefix} ${String(next.title).replace(/^Balanced\s+/i, '').replace(/^Protein-rich\s+/i, '')}`;
+        next.description = `${next.description ?? ''} Rank choices that match the saved ${dietStyle.replace('_', ' ')} preference.`.trim();
+      }
+      if (allergies.length) {
+        next.description = `${next.description ?? ''} Filter candidate meals against the user's saved allergen constraints; the user must still verify ingredients and preparation.`.trim();
+      }
+      if (next.key === 'dinner' && cookingFrequency === 'most_days') {
+        next.executionPlan = {
+          ...(next.executionPlan ?? {}),
+          source: 'homeMade',
+          groceriesNeeded: groceryReadiness === 'rarely',
+        };
+      }
+    }
+
+    if (next.kind === 'workout' && gymAvailable === false && next.key === 'strength-workout') {
+      next.title = 'At-home full-body strength';
+      next.location = 'Home';
+      next.categories = [...new Set([...(next.categories ?? []), 'Bodyweight', 'Home Workout'])];
+      next.description = 'A full-body strength session that does not require reliable gym access.';
+    }
+    return next;
+  });
+
+  const occupied = [
+    ...workBusy,
+    ...sleepBusy,
+    ...stops.filter((stop) => stop.kind === 'meal').map((stop) => {
+      const startSecond = parseClock(stop.start);
+      return {
+        startSecond,
+        endSecond: Math.min(86_400, startSecond + Math.max(60, Number(stop.durationMinutes ?? 1) * 60)),
+      };
+    }),
+  ];
+
+  stops = stops
+    .sort((a, b) => parseClock(a.start) - parseClock(b.start))
+    .map((stop) => {
+      if (stop.kind === 'meal') return stop;
+      const durationSeconds = Math.max(60, Number(stop.durationMinutes ?? 1) * 60);
+      const preferred = parseClock(stop.start);
+      const preferredEnd = preferred + durationSeconds;
+      let startSecond = preferred;
+      if (overlapsAny(preferred, preferredEnd, occupied)) {
+        startSecond = nearestAvailableStart(preferred, durationSeconds, occupied);
+      }
+      occupied.push({ startSecond, endSecond: startSecond + durationSeconds });
+      return { ...stop, start: ruleClock(startSecond) };
+    })
+    .sort((a, b) => parseClock(a.start) - parseClock(b.start));
+
+  return {
+    ...rules,
+    dayContext: {
+      ...(rules.dayContext ?? {}),
+      ...dayContext,
+      hardBusyIntervals: [...sleepBusy, ...workBusy],
+      routeKnowledge: {
+        dietStyle: dietStyle || null,
+        allergyCount: allergies.length,
+        gymAvailable: typeof gymAvailable === 'boolean' ? gymAvailable : null,
+        cookingFrequency: cookingFrequency || null,
+      },
+    },
+    stops,
+  };
+}
+
 async function userSleepDayContext(client, userID, fallback = {}) {
   const result = await client.query(
     `SELECT schedule_key,EXTRACT(EPOCH FROM clock_time)::int AS second_of_day
@@ -308,16 +463,23 @@ async function userSleepDayContext(client, userID, fallback = {}) {
     [userID],
   );
   const byKey = new Map(result.rows.map((row) => [row.schedule_key, Number(row.second_of_day)]));
-  const wakeSecond = Number.isFinite(byKey.get('wake'))
-    ? byKey.get('wake')
-    : Number(fallback.wakeSecond ?? 7 * 3600);
-  const sleepSecond = Number.isFinite(byKey.get('bed'))
-    ? byKey.get('bed')
-    : Number(fallback.sleepSecond ?? 23 * 3600);
+  const wakeSecond = Math.max(0, Math.min(86_400, Math.trunc(
+    Number.isFinite(byKey.get('wake')) ? byKey.get('wake') : Number(fallback.wakeSecond ?? 7 * 3600),
+  )));
+  const sleepSecond = Math.max(0, Math.min(86_400, Math.trunc(
+    Number.isFinite(byKey.get('bed')) ? byKey.get('bed') : Number(fallback.sleepSecond ?? 23 * 3600),
+  )));
+  const sleepWindows = sleepSecond >= wakeSecond
+    ? [
+        ...(wakeSecond > 0 ? [{ startSecond: 0, endSecond: wakeSecond }] : []),
+        ...(sleepSecond < 86_400 ? [{ startSecond: sleepSecond, endSecond: 86_400 }] : []),
+      ]
+    : [{ startSecond: sleepSecond, endSecond: wakeSecond }];
   return {
     ...fallback,
-    wakeSecond: Math.max(0, Math.min(86_400, Math.trunc(wakeSecond))),
-    sleepSecond: Math.max(0, Math.min(86_400, Math.trunc(sleepSecond))),
+    wakeSecond,
+    sleepSecond,
+    sleepWindows,
   };
 }
 
@@ -348,10 +510,12 @@ export async function generateDailyPathForUser(client, {
     id,
     rules.dayContext ?? {},
   );
-  const resolvedRules = {
-    ...rules,
-    dayContext: personalizedDayContext,
-  };
+  const routeKnowledgeProfile = await userRouteKnowledgeProfile(client, id);
+  const resolvedRules = personalizeRulesFromRouteKnowledge(
+    { ...rules, dayContext: personalizedDayContext },
+    routeKnowledgeProfile,
+    personalizedDayContext,
+  );
 
   const plan = buildStandardWeightLossDay({ userID: id, mapDate: validatedMapDate, rules: resolvedRules });
   const newNodeIDs = plan.nodes.map((entry) => entry.nodeID);

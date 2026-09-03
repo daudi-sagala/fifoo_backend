@@ -333,3 +333,7 @@ Backend v0.10.0 adds a five-minute live-route freshness evaluator. The cadence i
 
 See `docs/ADAPTIVE_ROUTE_FRESHNESS_MVP.md` and `ADAPTIVE_ROUTE_FRESHNESS_COMPLETION.md`.
 
+
+## Road Encounters / Route Knowledge (v0.11.0)
+
+Fifoo can now turn high-value profile/route knowledge gaps into gamified Road Encounters, Scout Reports and Quick Duels. Questions are backend-ranked, become less frequent as the profile fills, avoid interrupting active activities, and can update the authoritative future route immediately. See `docs/ROAD_ENCOUNTERS_ROUTE_KNOWLEDGE_MVP.md` and `ROAD_ENCOUNTERS_COMPLETION.md`.
