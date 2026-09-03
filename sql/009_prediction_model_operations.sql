@@ -141,15 +141,15 @@ SELECT
     s.personalized_probability,
     s.final_probability,
     s.legacy_probability,
-    s.comparator_prediction_model_id,
-    s.comparator_probability,
     s.applied_probability,
     s.prediction_level,
     o.actual_status,
     o.completion_score,
     o.earned_points,
     o.potential_points,
-    o.observed_at
+    o.observed_at,
+    s.comparator_prediction_model_id,
+    s.comparator_probability
 FROM prediction_score_runs r
 JOIN prediction_score_events s
   ON s.prediction_score_run_id=r.prediction_score_run_id
