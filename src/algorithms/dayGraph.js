@@ -67,15 +67,10 @@ function defaultFillerKind({ startSecond, endSecond, previous, next, context }) 
 
   if (endSecond <= wakeSecond || startSecond >= sleepSecond) return 'sleep';
 
-  // Fasting is the primary metabolic state between eating windows. It remains
-  // metadata on top of workouts/tasks that happen during the same period; only
-  // otherwise-unoccupied time becomes a visible fasting interval.
-  const previousWasMeal = previous?.intervalKind === 'meal';
-  const nextIsMeal = next?.intervalKind === 'meal';
-  const betweenWakeAndFirstMeal = !previous && nextIsMeal;
-  if (previousWasMeal || nextIsMeal || betweenWakeAndFirstMeal) return 'fasting';
-
-  return 'freeTime';
+  // Awake time is metabolically fasting whenever the user is not eating.
+  // Workouts/tasks/travel remain the visible interval when they exist; only
+  // otherwise-unoccupied awake time becomes a visible fasting tile.
+  return 'fasting';
 }
 
 function normalizeScheduledInterval(raw, index, { idSeed, pathKey }) {
@@ -142,6 +137,229 @@ function makeFillerInterval({
     metabolicContext: intervalKind === 'fasting' ? 'fasting' : null,
     metadata: { generatedFiller: true, ...(resolved?.metadata ?? {}) },
   };
+}
+
+
+
+function displayClock(secondValue) {
+  const normalized = ((Math.trunc(Number(secondValue) || 0) % DAY_END_SECOND) + DAY_END_SECOND) % DAY_END_SECOND;
+  const hour24 = Math.floor(normalized / 3600);
+  const minute = Math.floor((normalized % 3600) / 60);
+  const period = hour24 < 12 ? 'AM' : 'PM';
+  const hour12 = (hour24 % 12) || 12;
+  return `${hour12}:${String(minute).padStart(2, '0')} ${period}`;
+}
+
+function specialIntervalMetadata(interval, {
+  presentationKind,
+  hourNumber,
+  cycleStartSecond,
+} = {}) {
+  return {
+    ...(interval.metadata ?? {}),
+    systemGenerated: interval.sourceNodeID == null || Boolean(interval.metadata?.generatedFiller),
+    specialDayTile: true,
+    presentationKind,
+    hourNumber,
+    cycleStartSecond,
+    displayTitle: `${presentationKind === 'nap' ? 'Nap' : presentationKind === 'sleep' ? 'Sleep' : 'Fasting'} Hour ${hourNumber}`,
+    displayTimeRange: `${displayClock(interval.startSecond)}–${displayClock(interval.endSecond)}`,
+  };
+}
+
+function splitAtCycleHours(interval, cycleStartSecond, { idSeed, label }) {
+  const boundaries = [interval.startSecond];
+  let nextBoundary = cycleStartSecond + (Math.floor((interval.startSecond - cycleStartSecond) / 3600) + 1) * 3600;
+  while (nextBoundary > interval.startSecond && nextBoundary < interval.endSecond) {
+    boundaries.push(nextBoundary);
+    nextBoundary += 3600;
+  }
+  boundaries.push(interval.endSecond);
+
+  const originalDuration = Math.max(1, interval.endSecond - interval.startSecond);
+  const originalWeight = Math.max(0, finiteNumber(interval.progressWeightHint, 0));
+
+  return boundaries.slice(0, -1).map((startSecond, index) => {
+    const endSecond = boundaries[index + 1];
+    const segmentDuration = Math.max(1, endSecond - startSecond);
+    const hourNumber = Math.max(1, Math.floor((startSecond - cycleStartSecond) / 3600) + 1);
+    return {
+      ...interval,
+      intervalID: stableUUID(`${idSeed}:${label}:${interval.intervalID}:${startSecond}:${endSecond}`),
+      key: `${interval.key}:${label}-hour-${hourNumber}:${startSecond}`,
+      candidateKey: interval.candidateKey ?? interval.key,
+      startSecond,
+      endSecond,
+      // Hourly presentation must never multiply an activity's progress value.
+      // Preserve the original span's aggregate weight by distributing it by
+      // duration across the generated hourly pieces.
+      progressWeightHint: originalWeight * (segmentDuration / originalDuration),
+      completionEvaluator: interval.intervalKind === 'fasting'
+        ? { type: 'fasting', plannedStartSecond: startSecond, plannedEndSecond: endSecond }
+        : interval.completionEvaluator,
+      metadata: specialIntervalMetadata({ ...interval, startSecond, endSecond }, {
+        presentationKind: label,
+        hourNumber,
+        cycleStartSecond,
+      }),
+    };
+  });
+}
+
+function splitForSleepClassification(interval, wakeSecond, sleepSecond, idSeed) {
+  const boundaries = [
+    interval.startSecond,
+    ...[wakeSecond, sleepSecond].filter((value) => (
+      value > interval.startSecond && value < interval.endSecond
+    )),
+    interval.endSecond,
+  ].sort((a, b) => a - b);
+
+  const originalDuration = Math.max(1, interval.endSecond - interval.startSecond);
+  const originalWeight = Math.max(0, finiteNumber(interval.progressWeightHint, 0));
+
+  return boundaries.slice(0, -1).map((startSecond, index) => {
+    const endSecond = boundaries[index + 1];
+    const segmentDuration = Math.max(1, endSecond - startSecond);
+    return {
+      ...interval,
+      intervalID: stableUUID(`${idSeed}:sleep-classification:${interval.intervalID}:${startSecond}:${endSecond}`),
+      key: `${interval.key}:sleep-classification:${startSecond}`,
+      startSecond,
+      endSecond,
+      progressWeightHint: originalWeight * (segmentDuration / originalDuration),
+    };
+  });
+}
+
+function intervalsOverlap(startA, endA, startB, endB) {
+  return startA < endB && startB < endA;
+}
+
+/**
+ * Fasting remains part of the continuous metabolic timeline even while a
+ * workout/task/meal is visible. A fasting card is shown only when the whole
+ * fasting-hour window has no competing activity. This avoids duplicate tiny
+ * fasting fragments around a real stop while keeping the graph gap-free.
+ */
+function applyFastingTileVisibility(intervals) {
+  const blockingIntervals = intervals.filter((interval) => (
+    interval.intervalKind !== 'fasting'
+    && interval.intervalKind !== 'sleep'
+  ));
+
+  return intervals.map((interval) => {
+    if (interval.intervalKind !== 'fasting' || !interval.metadata?.specialDayTile) {
+      return interval;
+    }
+
+    const hourNumber = Math.max(1, Math.trunc(finiteNumber(interval.metadata.hourNumber, 1)));
+    const cycleStartSecond = Math.trunc(finiteNumber(
+      interval.metadata.cycleStartSecond,
+      interval.startSecond,
+    ));
+    const hourStart = cycleStartSecond + ((hourNumber - 1) * 3600);
+    const hourEnd = hourStart + 3600;
+    const blocked = blockingIntervals.some((candidate) => intervalsOverlap(
+      hourStart,
+      hourEnd,
+      candidate.startSecond,
+      candidate.endSecond,
+    ));
+
+    if (!blocked) return interval;
+
+    return {
+      ...interval,
+      metadata: {
+        ...(interval.metadata ?? {}),
+        specialDayTile: false,
+        suppressedByActivity: true,
+      },
+    };
+  });
+}
+
+/**
+ * Turns planner-level sleep/fasting spans into user-facing hourly system tiles.
+ * Fasting numbering is based on elapsed fasting time, not on the number of
+ * visible fasting cards, so workouts/tasks can temporarily hide a fasting tile
+ * without resetting the metabolic clock.
+ */
+function materializeSpecialHourlyIntervals(intervals, { idSeed, context = {} } = {}) {
+  const wakeSecond = Math.max(0, Math.min(DAY_END_SECOND, Math.trunc(
+    finiteNumber(context?.wakeSecond, 7 * 3600),
+  )));
+  const sleepSecond = Math.max(wakeSecond, Math.min(DAY_END_SECOND, Math.trunc(
+    finiteNumber(context?.sleepSecond, 23 * 3600),
+  )));
+
+  const meals = intervals.filter((interval) => interval.intervalKind === 'meal');
+  const inferredPriorMealEnd = meals.length
+    ? meals.at(-1).endSecond - DAY_END_SECOND
+    : -5 * 3600;
+  let fastingCycleStart = Math.trunc(finiteNumber(context?.priorMealEndSecond, inferredPriorMealEnd));
+  let napCycleStart = null;
+  const output = [];
+
+  for (const interval of intervals) {
+    if (interval.intervalKind === 'meal') {
+      output.push(interval);
+      fastingCycleStart = interval.endSecond;
+      napCycleStart = null;
+      continue;
+    }
+
+    if (interval.intervalKind === 'sleep') {
+      const sleepPieces = splitForSleepClassification(
+        interval,
+        wakeSecond,
+        sleepSecond,
+        idSeed,
+      );
+
+      for (const sleepPiece of sleepPieces) {
+        const isNap = sleepPiece.startSecond >= wakeSecond && sleepPiece.endSecond <= sleepSecond;
+        const label = isNap ? 'nap' : 'sleep';
+        let cycleStartSecond;
+
+        if (isNap) {
+          if (napCycleStart == null
+              || output.at(-1)?.intervalKind !== 'sleep'
+              || output.at(-1)?.metadata?.presentationKind !== 'nap') {
+            napCycleStart = sleepPiece.startSecond;
+          }
+          cycleStartSecond = napCycleStart;
+        } else if (sleepPiece.endSecond <= wakeSecond) {
+          cycleStartSecond = sleepSecond - DAY_END_SECOND;
+          napCycleStart = null;
+        } else {
+          cycleStartSecond = sleepSecond;
+          napCycleStart = null;
+        }
+
+        output.push(...splitAtCycleHours(sleepPiece, cycleStartSecond, {
+          idSeed,
+          label,
+        }));
+      }
+      continue;
+    }
+
+    napCycleStart = null;
+
+    if (interval.intervalKind === 'fasting') {
+      output.push(...splitAtCycleHours(interval, fastingCycleStart, {
+        idSeed,
+        label: 'fasting',
+      }));
+      continue;
+    }
+
+    output.push(interval);
+  }
+
+  return applyFastingTileVisibility(output);
 }
 
 function applyMetabolicContexts(intervals) {
@@ -266,13 +484,18 @@ export function compileContinuousDay({
     });
   }
 
+  const materializedIntervals = materializeSpecialHourlyIntervals(
+    applyMetabolicContexts(intervals),
+    { idSeed: `${idSeed}:${pathKey}:special`, context },
+  );
+
   const path = {
     pathID: stableUUID(`${idSeed}:path:${pathKey}`),
     pathKey,
     pathKind,
     originIntervalID: null,
     rejoinIntervalID: null,
-    intervals: applyMetabolicContexts(intervals),
+    intervals: materializedIntervals,
   };
   validateContinuousPath(path, { requireFullDay: PRIMARY_KINDS.has(pathKind) });
   return path;

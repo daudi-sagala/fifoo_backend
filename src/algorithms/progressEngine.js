@@ -140,9 +140,17 @@ export function allocateDailyBudget(pathOrIntervals, {
   }
 
   const rounded = points.map(roundPoints);
-  const residual = roundPoints(requestedTotal - sum(rounded));
   const residualIndex = [...intervals.keys()].reverse().find((index) => rounded[index] > 0) ?? intervals.length - 1;
-  rounded[residualIndex] = roundPoints(rounded[residualIndex] + residual);
+
+  // Preserve the exact numeric daily-budget invariant even when a plan has
+  // many hourly system intervals. The final positive allocation absorbs the
+  // tiny IEEE-754 remainder using the same reduction order callers use, so a
+  // plain JS reduce still returns exactly requestedTotal (normally 100).
+  const totalWithoutResidual = rounded.reduce(
+    (total, value, index) => total + (index === residualIndex ? 0 : value),
+    0,
+  );
+  rounded[residualIndex] = requestedTotal - totalWithoutResidual;
 
   let cumulative = 0;
   return intervals.map((interval, index) => {

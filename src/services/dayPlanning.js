@@ -9,7 +9,11 @@ function json(value) {
 }
 
 function potentialTotal(path) {
-  return path.intervals.reduce((total, interval) => total + Number(interval.potentialPoints ?? 0), 0);
+  const total = path.intervals.reduce(
+    (sum, interval) => sum + Number(interval.potentialPoints ?? 0),
+    0,
+  );
+  return Math.round((total + Number.EPSILON) * 1_000_000) / 1_000_000;
 }
 
 async function insertPath(client, planID, path, pathOrder) {

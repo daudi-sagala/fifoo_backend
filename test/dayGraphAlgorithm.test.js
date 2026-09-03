@@ -109,3 +109,170 @@ test('future-only freeze splits at the exact second and locks value rather than 
     86_400,
   );
 });
+
+test('sleep fillers become numbered hourly tiles across midnight', () => {
+  const path = compileContinuousDay({
+    idSeed: 'sleep-hours',
+    context: { wakeSecond: 5 * 3600, sleepSecond: 22 * 3600 },
+    scheduledIntervals: [
+      { key: 'breakfast', kind: 'meal', startSecond: 7 * 3600, endSecond: 7.5 * 3600 },
+      { key: 'dinner', kind: 'meal', startSecond: 19 * 3600, endSecond: 19.5 * 3600 },
+    ],
+  });
+
+  const morningSleep = path.intervals.filter((interval) => (
+    interval.intervalKind === 'sleep' && interval.endSecond <= 5 * 3600
+  ));
+  const eveningSleep = path.intervals.filter((interval) => (
+    interval.intervalKind === 'sleep' && interval.startSecond >= 22 * 3600
+  ));
+
+  assert.deepEqual(morningSleep.map((interval) => interval.metadata.displayTitle), [
+    'Sleep Hour 3', 'Sleep Hour 4', 'Sleep Hour 5', 'Sleep Hour 6', 'Sleep Hour 7',
+  ]);
+  assert.deepEqual(eveningSleep.map((interval) => interval.metadata.displayTitle), [
+    'Sleep Hour 1', 'Sleep Hour 2',
+  ]);
+  assert.equal(morningSleep[0].metadata.displayTimeRange, '12:00 AM–1:00 AM');
+  assert.equal(eveningSleep[0].metadata.displayTimeRange, '10:00 PM–11:00 PM');
+});
+
+test('awake gaps are visible fasting tiles and fasting hour count continues through activities', () => {
+  const path = compileContinuousDay({
+    idSeed: 'fasting-hours',
+    context: { wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 },
+    scheduledIntervals: [
+      { key: 'breakfast', kind: 'meal', startSecond: 7 * 3600, endSecond: 8 * 3600 },
+      { key: 'workout', kind: 'workout', startSecond: 9.5 * 3600, endSecond: 10 * 3600 },
+      { key: 'lunch', kind: 'meal', startSecond: 12 * 3600, endSecond: 12.5 * 3600 },
+    ],
+  });
+
+  assert.equal(path.intervals.some((interval) => interval.intervalKind === 'freeTime'), false);
+  const afterBreakfast = path.intervals.filter((interval) => (
+    interval.intervalKind === 'fasting'
+      && interval.startSecond >= 8 * 3600
+      && interval.endSecond <= 12 * 3600
+  ));
+
+  assert.equal(afterBreakfast[0].metadata.displayTitle, 'Fasting Hour 1');
+  const afterWorkout = afterBreakfast.find((interval) => interval.startSecond === 10 * 3600);
+  assert.ok(afterWorkout);
+  assert.equal(afterWorkout.metadata.displayTitle, 'Fasting Hour 3');
+  assert.equal(afterWorkout.metadata.hourNumber, 3);
+});
+
+test('scheduled daytime sleep is classified as a separately numbered nap', () => {
+  const path = compileContinuousDay({
+    idSeed: 'nap-hours',
+    context: { wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 },
+    scheduledIntervals: [
+      { key: 'nap', kind: 'sleep', startSecond: 14 * 3600, endSecond: 16.5 * 3600 },
+    ],
+  });
+  const nap = path.intervals.filter((interval) => interval.metadata?.presentationKind === 'nap');
+  assert.deepEqual(nap.map((interval) => interval.metadata.displayTitle), [
+    'Nap Hour 1', 'Nap Hour 2', 'Nap Hour 3',
+  ]);
+  assert.equal(nap.at(-1).metadata.displayTimeRange, '4:00 PM–4:30 PM');
+});
+
+test('hourly special tiles preserve aggregate planner weights', () => {
+  const path = compileContinuousDay({
+    idSeed: 'special-weight-test',
+    context: { wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 },
+    scheduledIntervals: [
+      {
+        key: 'breakfast',
+        intervalKind: 'meal',
+        startSecond: 8 * 3600,
+        endSecond: 8 * 3600 + 1800,
+        progressWeightHint: 2,
+      },
+    ],
+  });
+
+  const sleepWeight = path.intervals
+    .filter((interval) => interval.intervalKind === 'sleep')
+    .reduce((total, interval) => total + interval.progressWeightHint, 0);
+  const fastingBeforeBreakfastWeight = path.intervals
+    .filter((interval) => interval.intervalKind === 'fasting' && interval.endSecond <= 8 * 3600)
+    .reduce((total, interval) => total + interval.progressWeightHint, 0);
+
+  // Original filler spans are 00:00-07:00 sleep (weight 1) and
+  // 07:00-08:00 fasting (weight .35); segmentation is presentation-only.
+  assert.ok(Math.abs(sleepWeight - 2) < 1e-9);
+  assert.ok(Math.abs(fastingBeforeBreakfastWeight - 0.35) < 1e-9);
+});
+
+test('fasting remains in graph but its visible tile is suppressed when that fasting hour contains an activity', () => {
+  const path = compileContinuousDay({
+    idSeed: 'fasting-visibility-test',
+    context: { wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 },
+    scheduledIntervals: [
+      {
+        key: 'breakfast',
+        intervalKind: 'meal',
+        startSecond: 7 * 3600,
+        endSecond: 8 * 3600,
+      },
+      {
+        key: 'workout',
+        intervalKind: 'workout',
+        startSecond: 10 * 3600 + 15 * 60,
+        endSecond: 10 * 3600 + 45 * 60,
+      },
+      {
+        key: 'lunch',
+        intervalKind: 'meal',
+        startSecond: 12 * 3600,
+        endSecond: 12 * 3600 + 30 * 60,
+      },
+    ],
+  });
+
+  const fastingHour3Pieces = path.intervals.filter((interval) => (
+    interval.intervalKind === 'fasting'
+    && interval.metadata?.hourNumber === 3
+    && interval.metadata?.cycleStartSecond === 8 * 3600
+  ));
+
+  assert.ok(fastingHour3Pieces.length >= 1);
+  assert.ok(fastingHour3Pieces.every((interval) => interval.metadata?.specialDayTile === false));
+  assert.ok(fastingHour3Pieces.every((interval) => interval.metadata?.suppressedByActivity === true));
+
+  const fastingHour4 = path.intervals.find((interval) => (
+    interval.intervalKind === 'fasting'
+    && interval.metadata?.hourNumber === 4
+    && interval.metadata?.cycleStartSecond === 8 * 3600
+  ));
+  assert.equal(fastingHour4?.metadata?.displayTitle, 'Fasting Hour 4');
+  assert.equal(fastingHour4?.metadata?.specialDayTile, true);
+});
+
+test('sleep crossing the wake boundary becomes overnight sleep then a nap', () => {
+  const path = compileContinuousDay({
+    idSeed: 'cross-wake-sleep-test',
+    context: { wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 },
+    scheduledIntervals: [
+      {
+        key: 'late-sleep',
+        intervalKind: 'sleep',
+        startSecond: 5 * 3600,
+        endSecond: 8 * 3600,
+        progressWeightHint: 3,
+      },
+    ],
+  });
+
+  const lateSleep = path.intervals.filter((interval) => (
+    interval.startSecond >= 5 * 3600 && interval.endSecond <= 8 * 3600
+  ));
+  assert.deepEqual(
+    lateSleep.map((interval) => interval.metadata?.displayTitle),
+    ['Sleep Hour 7', 'Sleep Hour 8', 'Nap Hour 1'],
+  );
+  assert.ok(Math.abs(
+    lateSleep.reduce((total, interval) => total + interval.progressWeightHint, 0) - 3
+  ) < 1e-9);
+});

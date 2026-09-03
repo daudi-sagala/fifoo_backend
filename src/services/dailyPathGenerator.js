@@ -298,6 +298,29 @@ async function generatedNodesStillExist(client, dayMapID, nodeIDs) {
  * - Never deletes manually created user nodes.
  * - Uses the same backend route builder that powers normal client mutations.
  */
+
+
+async function userSleepDayContext(client, userID, fallback = {}) {
+  const result = await client.query(
+    `SELECT schedule_key,EXTRACT(EPOCH FROM clock_time)::int AS second_of_day
+       FROM user_schedule_preferences
+      WHERE user_id=$1 AND schedule_key IN ('wake','bed') AND clock_time IS NOT NULL`,
+    [userID],
+  );
+  const byKey = new Map(result.rows.map((row) => [row.schedule_key, Number(row.second_of_day)]));
+  const wakeSecond = Number.isFinite(byKey.get('wake'))
+    ? byKey.get('wake')
+    : Number(fallback.wakeSecond ?? 7 * 3600);
+  const sleepSecond = Number.isFinite(byKey.get('bed'))
+    ? byKey.get('bed')
+    : Number(fallback.sleepSecond ?? 23 * 3600);
+  return {
+    ...fallback,
+    wakeSecond: Math.max(0, Math.min(86_400, Math.trunc(wakeSecond))),
+    sleepSecond: Math.max(0, Math.min(86_400, Math.trunc(sleepSecond))),
+  };
+}
+
 export async function generateDailyPathForUser(client, {
   userID,
   mapDate,
@@ -320,14 +343,24 @@ export async function generateDailyPathForUser(client, {
     timeZoneIdentifier: validatedTimeZone,
   });
 
-  const plan = buildStandardWeightLossDay({ userID: id, mapDate: validatedMapDate, rules });
+  const personalizedDayContext = await userSleepDayContext(
+    client,
+    id,
+    rules.dayContext ?? {},
+  );
+  const resolvedRules = {
+    ...rules,
+    dayContext: personalizedDayContext,
+  };
+
+  const plan = buildStandardWeightLossDay({ userID: id, mapDate: validatedMapDate, rules: resolvedRules });
   const newNodeIDs = plan.nodes.map((entry) => entry.nodeID);
   const prior = await generationRun(client, dayMap.day_map_id);
 
   if (!force
       && prior
-      && prior.generator_name === rules.name
-      && Number(prior.generator_version) === Number(rules.version)
+      && prior.generator_name === resolvedRules.name
+      && Number(prior.generator_version) === Number(resolvedRules.version)
       && prior.rules_hash === plan.rulesHash
       && await generatedNodesStillExist(client, dayMap.day_map_id, newNodeIDs)
       && await activeDayPlanExists(client, dayMap.day_map_id, plan.rulesHash)) {
@@ -339,7 +372,7 @@ export async function generateDailyPathForUser(client, {
       userID: id,
       revision: Number(dayMap.revision),
       generatedNodeIDs: newNodeIDs,
-      rules: { name: rules.name, version: rules.version, hash: plan.rulesHash },
+      rules: { name: resolvedRules.name, version: resolvedRules.version, hash: plan.rulesHash },
     };
   }
 
@@ -411,7 +444,7 @@ export async function generateDailyPathForUser(client, {
       mode: 'cold-start',
       timeZoneIdentifier: validatedTimeZone,
       decisionType: 'initial_day_plan',
-      ...(rules.dayContext ?? {}),
+      ...(resolvedRules.dayContext ?? {}),
     },
   });
   const predictedByKey = new Map(
@@ -451,7 +484,7 @@ export async function generateDailyPathForUser(client, {
       mode: 'cold-start',
       timeZoneIdentifier: validatedTimeZone,
       populationPriorFallback: 0.65,
-      ...(rules.dayContext ?? {}),
+      ...(resolvedRules.dayContext ?? {}),
     },
     decisionSummary: {
       generatedStopCount: plan.nodes.length,
@@ -485,7 +518,7 @@ export async function generateDailyPathForUser(client, {
     routingContext: {
       mode: 'cold-start',
       timeZoneIdentifier: validatedTimeZone,
-      ...(rules.dayContext ?? {}),
+      ...(resolvedRules.dayContext ?? {}),
     },
     candidates: scoredLearningCandidates,
     routes: [routeObservation(plan.dayGraph.chosenPath, 0, { selected: true, routeKind: 'chosen' })],
@@ -508,7 +541,7 @@ export async function generateDailyPathForUser(client, {
        generated_node_ids=EXCLUDED.generated_node_ids,
        generated_at=NOW(),
        updated_at=NOW()`,
-    [dayMap.day_map_id, id, rules.name, rules.version, plan.rulesHash, newNodeIDs],
+    [dayMap.day_map_id, id, resolvedRules.name, resolvedRules.version, plan.rulesHash, newNodeIDs],
   );
 
   const revision = await bumpRevision(client, dayMap.day_map_id);
@@ -522,6 +555,6 @@ export async function generateDailyPathForUser(client, {
     nodes: persistedNodes,
     routeState: routeResult.routeState,
     dayPlan,
-    rules: { name: rules.name, version: rules.version, hash: plan.rulesHash },
+    rules: { name: resolvedRules.name, version: resolvedRules.version, hash: plan.rulesHash },
   };
 }

@@ -5,12 +5,18 @@
  * file later with personalization, goals, preferences, availability, medical
  * constraints, work schedules, etc. The generator only consumes this plan.
  */
-export const STANDARD_WEIGHT_LOSS_DAY_VERSION = 2;
+export const STANDARD_WEIGHT_LOSS_DAY_VERSION = 3;
 
 export function standardWeightLossDayRules() {
   return {
     name: 'standard-weight-loss-day',
     version: STANDARD_WEIGHT_LOSS_DAY_VERSION,
+    // Defaults only. generateDailyPathForUser overlays the user's saved
+    // onboarding wake/bed preferences when available.
+    dayContext: {
+      wakeSecond: 7 * 3600,
+      sleepSecond: 23 * 3600,
+    },
     categoryBudgets: {
       nutrition: 35,
       exercise: 25,
