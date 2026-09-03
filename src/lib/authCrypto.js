@@ -35,13 +35,35 @@ export function validateUsername(username) {
   return normalized;
 }
 
+export function resolveSignupUsername(value, accountEmail) {
+  const email = validateEmail(accountEmail);
+  const requested = normalizeUsername(value);
+
+  // Phase 8 does not require a separate player tag. The account email is a
+  // valid canonical username, while legacy handle-style usernames remain valid.
+  if (!requested) return email;
+
+  if (requested.includes('@')) {
+    const usernameEmail = validateEmail(requested);
+    if (usernameEmail !== email) {
+      throw new GameError(
+        'invalid_payload',
+        'When an email is used as the username, it must match the account email.',
+      );
+    }
+    return email;
+  }
+
+  return validateUsername(requested);
+}
+
 export function validatePasswordPolicy(password) {
   if (typeof password !== 'string') {
     throw new GameError('invalid_payload', 'Password must be a string.');
   }
   const bytes = Buffer.byteLength(password, 'utf8');
-  if (password.length < 10) {
-    throw new GameError('invalid_payload', 'Password must contain at least 10 characters.');
+  if (password.length < 6) {
+    throw new GameError('invalid_payload', 'Password must contain at least 6 characters.');
   }
   if (bytes > MAX_PASSWORD_BYTES) {
     throw new GameError('invalid_payload', 'Password is too long.');

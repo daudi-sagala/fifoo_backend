@@ -6,6 +6,7 @@ import {
   hashOpaqueToken,
   hashPassword,
   normalizeEmail,
+  resolveSignupUsername,
   validateEmail,
   validatePasswordPolicy,
   validateUsername,
@@ -16,6 +17,7 @@ export {
   hashOpaqueToken,
   hashPassword,
   normalizeEmail,
+  resolveSignupUsername,
   validateEmail,
   validatePasswordPolicy,
   validateUsername,
@@ -82,10 +84,7 @@ export async function issueSession(client, { userID, deviceID }) {
 
 export async function signup(client, payload) {
   const email = validateEmail(payload.email);
-  const requestedUsername = String(payload.username ?? '').trim();
-  const username = requestedUsername.toLowerCase() === email.toLowerCase()
-    ? email
-    : validateUsername(requestedUsername);
+  const username = resolveSignupUsername(payload.username, email);
   const passwordHash = await hashPassword(payload.password);
   const firstName = cleanText(payload.firstName, 100);
   const lastName = cleanText(payload.lastName, 100);
