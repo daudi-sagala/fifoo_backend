@@ -276,3 +276,98 @@ test('sleep crossing the wake boundary becomes overnight sleep then a nap', () =
     lateSleep.reduce((total, interval) => total + interval.progressWeightHint, 0) - 3
   ) < 1e-9);
 });
+
+test('primary route always generates latent fasting state nodes underneath real activities', () => {
+  const path = compileContinuousDay({
+    idSeed: 'latent-fasting-states',
+    context: { wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 },
+    scheduledIntervals: [
+      { key: 'breakfast', kind: 'meal', startSecond: 8 * 3600, endSecond: 8.5 * 3600 },
+      { key: 'workout', kind: 'workout', startSecond: 10 * 3600, endSecond: 11 * 3600 },
+      { key: 'lunch', kind: 'meal', startSecond: 13 * 3600, endSecond: 13.5 * 3600 },
+    ],
+  });
+
+  const workout = path.intervals.find((interval) => interval.key === 'workout');
+  const fastingUnderWorkout = path.systemStateIntervals.filter((interval) => (
+    interval.intervalKind === 'fasting'
+    && interval.startSecond < workout.endSecond
+    && workout.startSecond < interval.endSecond
+  ));
+
+  assert.ok(fastingUnderWorkout.length >= 1);
+  assert.ok(fastingUnderWorkout.every((interval) => interval.metadata?.primaryStateNode === true));
+  assert.ok(fastingUnderWorkout.every((interval) => interval.metadata?.displayPriority === 10));
+});
+
+test('primary route generates sleep and fasting together while sleep has the higher display priority', () => {
+  const path = compileContinuousDay({
+    idSeed: 'sleep-over-fasting-states',
+    context: { wakeSecond: 6 * 3600, sleepSecond: 22 * 3600 },
+    scheduledIntervals: [
+      { key: 'dinner', kind: 'meal', startSecond: 19 * 3600, endSecond: 19.5 * 3600 },
+    ],
+  });
+
+  const sleepHour = path.systemStateIntervals.find((interval) => (
+    interval.metadata?.presentationKind === 'sleep'
+    && interval.startSecond === 22 * 3600
+  ));
+  const fastingAtSleep = path.systemStateIntervals.find((interval) => (
+    interval.intervalKind === 'fasting'
+    && interval.startSecond < 23 * 3600
+    && interval.endSecond > 22 * 3600
+  ));
+
+  assert.ok(sleepHour);
+  assert.ok(fastingAtSleep);
+  assert.equal(sleepHour.metadata.displayPriority, 20);
+  assert.equal(fastingAtSleep.metadata.displayPriority, 10);
+});
+
+test('alternative branches never expose sleep or fasting state nodes', () => {
+  const context = { wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 };
+  const chosen = compileContinuousDay({
+    idSeed: 'decision-state-alt',
+    pathKey: 'chosen',
+    context,
+    scheduledIntervals: [
+      { key: 'breakfast-8', candidateKey: 'breakfast-8', kind: 'meal', startSecond: 8 * 3600, endSecond: 8.5 * 3600 },
+      { key: 'lunch', kind: 'meal', startSecond: 13 * 3600, endSecond: 13.5 * 3600 },
+    ],
+  });
+  const alternative = compileContinuousDay({
+    idSeed: 'decision-state-alt',
+    pathKey: 'breakfast-9-alternative',
+    context,
+    scheduledIntervals: [
+      { key: 'breakfast-9', candidateKey: 'breakfast-9', kind: 'meal', startSecond: 9 * 3600, endSecond: 9.5 * 3600 },
+      { key: 'lunch', kind: 'meal', startSecond: 13 * 3600, endSecond: 13.5 * 3600 },
+    ],
+  });
+
+  const [branch] = compileAlternativeBranches(chosen, [alternative], { idSeed: 'decision-state-alt' });
+
+  assert.deepEqual(branch.systemStateIntervals, []);
+  assert.equal(branch.intervals.some((interval) => ['sleep', 'fasting'].includes(interval.intervalKind)), false);
+  assert.ok(branch.intervals.some((interval) => interval.key.includes('breakfast-9')));
+});
+
+test('primary system-state layer keeps overnight sleep and daytime nap classification across the wake boundary', () => {
+  const path = compileContinuousDay({
+    idSeed: 'primary-state-cross-wake',
+    context: { wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 },
+    scheduledIntervals: [
+      { key: 'late-sleep-decision', kind: 'sleep', startSecond: 5 * 3600, endSecond: 8 * 3600 },
+    ],
+  });
+
+  const relevant = path.systemStateIntervals.filter((interval) => (
+    interval.startSecond >= 5 * 3600
+    && interval.endSecond <= 8 * 3600
+    && ['sleep', 'nap'].includes(interval.metadata?.presentationKind)
+  ));
+  assert.deepEqual(relevant.map((interval) => interval.metadata.displayTitle), [
+    'Sleep Hour 7', 'Sleep Hour 8', 'Nap Hour 1',
+  ]);
+});

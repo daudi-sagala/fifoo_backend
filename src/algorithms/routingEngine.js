@@ -2,6 +2,7 @@ import {
   compileAlternativeBranches,
   compileContinuousDay,
   freezePathAt as freezePrimaryPath,
+  projectSystemStateProgress,
   splitIntervalAt,
   stitchPrimaryPaths,
   validateDayGraph,
@@ -308,10 +309,23 @@ function trimPathStart(path, startSecond, pathKey) {
       intervals.push({ ...interval, lifecycleStatus: 'planned' });
     }
   }
+  const systemStateIntervals = (path.systemStateIntervals ?? []).flatMap((interval) => {
+    if (interval.endSecond <= startSecond) return [];
+    if (interval.startSecond >= startSecond) return [{ ...interval }];
+    return [{
+      ...interval,
+      startSecond,
+      metadata: {
+        ...(interval.metadata ?? {}),
+        displayTimeRange: null,
+      },
+    }];
+  });
   return {
     ...path,
     pathKey,
     intervals,
+    systemStateIntervals,
   };
 }
 
@@ -349,6 +363,10 @@ function compileRoute(state, index, context, categoryBudgets, {
     plannedProgressStart: interval.plannedProgressStart + progressOffset,
     plannedProgressEnd: interval.plannedProgressEnd + progressOffset,
   }));
+  futurePath.systemStateIntervals = projectSystemStateProgress(
+    futurePath.systemStateIntervals ?? [],
+    futurePath.intervals,
+  );
   futurePath.routeScore = state.score + finalRouteAdjustment(state);
   futurePath.expectedProgress = futurePath.intervals.reduce((total, interval) => {
     const probability = interval.metadata?.completionProbability

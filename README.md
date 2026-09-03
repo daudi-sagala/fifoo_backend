@@ -337,3 +337,9 @@ See `docs/ADAPTIVE_ROUTE_FRESHNESS_MVP.md` and `ADAPTIVE_ROUTE_FRESHNESS_COMPLET
 ## Road Encounters / Route Knowledge (v0.11.0)
 
 Fifoo can now turn high-value profile/route knowledge gaps into gamified Road Encounters, Scout Reports and Quick Duels. Questions are backend-ranked, become less frequent as the profile fills, avoid interrupting active activities, and can update the authoritative future route immediately. See `docs/ROAD_ENCOUNTERS_ROUTE_KNOWLEDGE_MVP.md` and `ROAD_ENCOUNTERS_COMPLETION.md`.
+
+## Decision-derived Sleep/Fasting state nodes (v0.12.0)
+
+The authoritative Day Graph now separates **decision/activity intervals** from **primary-route state nodes**. Completed/chosen paths carry an additive `systemStateIntervals` layer that always generates hourly Sleep/Nap and Fasting nodes from the selected route decisions. The iOS client renders them by priority (`activity > sleep/nap > fasting`). Alternative branches contain no Sleep/Fasting state nodes; neutral coverage placeholders keep branch timing connected until the user chooses an activity decision, at which point the normal future-only rerouter recomputes the primary state layer.
+
+No SQL migration is required. The additive payload schema is `fifoo.day-graph.v3`.

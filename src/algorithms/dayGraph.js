@@ -401,6 +401,238 @@ function materializeSpecialHourlyIntervals(intervals, { idSeed, context = {} } =
   return applyFastingTileVisibility(output);
 }
 
+
+function mergeWindows(windows = []) {
+  const sorted = (windows ?? [])
+    .map((window) => ({
+      startSecond: Math.max(DAY_START_SECOND, Math.min(DAY_END_SECOND, Math.trunc(finiteNumber(window?.startSecond, 0)))),
+      endSecond: Math.max(DAY_START_SECOND, Math.min(DAY_END_SECOND, Math.trunc(finiteNumber(window?.endSecond, 0)))),
+    }))
+    .filter((window) => window.endSecond > window.startSecond)
+    .sort((a, b) => a.startSecond - b.startSecond || a.endSecond - b.endSecond);
+  const merged = [];
+  for (const window of sorted) {
+    const previous = merged.at(-1);
+    if (!previous || window.startSecond > previous.endSecond) {
+      merged.push({ ...window });
+    } else {
+      previous.endSecond = Math.max(previous.endSecond, window.endSecond);
+    }
+  }
+  return merged;
+}
+
+function systemStateSeed({
+  intervalKind,
+  startSecond,
+  endSecond,
+  idSeed,
+  key,
+  metadata = {},
+}) {
+  return {
+    intervalID: stableUUID(`${idSeed}:state:${key}:${startSecond}:${endSecond}`),
+    key,
+    candidateKey: key,
+    sourceNodeID: null,
+    intervalKind,
+    startSecond,
+    endSecond,
+    progressCategory: activityCategory(intervalKind),
+    progressWeightHint: 0,
+    potentialPoints: 0,
+    plannedProgressStart: null,
+    plannedProgressEnd: null,
+    completionEvaluator: intervalKind === 'fasting'
+      ? { type: 'fasting', plannedStartSecond: startSecond, plannedEndSecond: endSecond }
+      : { type: 'presence' },
+    lifecycleStatus: 'planned',
+    metabolicContext: intervalKind === 'fasting' ? 'fasting' : null,
+    metadata: {
+      systemGenerated: true,
+      primaryStateNode: true,
+      ...metadata,
+    },
+  };
+}
+
+/**
+ * Generates the low-priority state-node layer for the authoritative primary
+ * route. These nodes are deliberately independent of the dominant interval
+ * topology, so they continue to exist underneath workouts/tasks/travel and can
+ * become visible immediately when a higher-priority activity disappears.
+ *
+ * Priority is presentation-only: activity > sleep/nap > fasting.
+ */
+function buildPrimarySystemStateIntervals(scheduledIntervals, { idSeed, context = {} } = {}) {
+  const baseSleepWindows = normalizedSleepWindows(context);
+  const explicitSleepWindows = (scheduledIntervals ?? [])
+    .filter((interval) => interval.intervalKind === 'sleep')
+    .map((interval) => ({ startSecond: interval.startSecond, endSecond: interval.endSecond }));
+  const combinedSleepWindows = mergeWindows([...baseSleepWindows, ...explicitSleepWindows]);
+  const sleepStates = [];
+  let napCycleStart = null;
+
+  for (const window of combinedSleepWindows) {
+    const seed = systemStateSeed({
+      intervalKind: 'sleep',
+      startSecond: window.startSecond,
+      endSecond: window.endSecond,
+      idSeed,
+      key: `sleep-state-${window.startSecond}-${window.endSecond}`,
+    });
+    const classifiedPieces = splitForSleepClassification(seed, baseSleepWindows, `${idSeed}:state-classification`);
+    for (const piece of classifiedPieces) {
+      const primarySleepCycleStart = sleepCycleStartForPiece(piece, baseSleepWindows);
+      const isNap = primarySleepCycleStart == null;
+      if (isNap) {
+        if (napCycleStart == null) napCycleStart = piece.startSecond;
+      } else {
+        napCycleStart = null;
+      }
+      const cycleStart = isNap ? napCycleStart : primarySleepCycleStart;
+      sleepStates.push(...splitAtCycleHours(piece, cycleStart, {
+        idSeed: `${idSeed}:sleep-state`,
+        label: isNap ? 'nap' : 'sleep',
+      }).map((interval) => ({
+        ...interval,
+        progressWeightHint: 0,
+        potentialPoints: 0,
+        metadata: {
+          ...(interval.metadata ?? {}),
+          primaryStateNode: true,
+          displayPriority: 20,
+        },
+      })));
+    }
+  }
+
+  const meals = (scheduledIntervals ?? [])
+    .filter((interval) => interval.intervalKind === 'meal')
+    .sort((a, b) => a.startSecond - b.startSecond || a.endSecond - b.endSecond);
+  const inferredPriorMealEnd = meals.length
+    ? meals.at(-1).endSecond - DAY_END_SECOND
+    : -5 * 3600;
+  let fastingCycleStart = Math.trunc(finiteNumber(context?.priorMealEndSecond, inferredPriorMealEnd));
+  let cursor = DAY_START_SECOND;
+  const fastingStates = [];
+
+  const appendFasting = (startSecond, endSecond) => {
+    if (endSecond <= startSecond) return;
+    const seed = systemStateSeed({
+      intervalKind: 'fasting',
+      startSecond,
+      endSecond,
+      idSeed,
+      key: `fasting-state-${startSecond}-${endSecond}`,
+    });
+    fastingStates.push(...splitAtCycleHours(seed, fastingCycleStart, {
+      idSeed: `${idSeed}:fasting-state`,
+      label: 'fasting',
+    }).map((interval) => ({
+      ...interval,
+      progressWeightHint: 0,
+      potentialPoints: 0,
+      metadata: {
+        ...(interval.metadata ?? {}),
+        primaryStateNode: true,
+        displayPriority: 10,
+      },
+    })));
+  };
+
+  for (const meal of meals) {
+    if (meal.startSecond > cursor) appendFasting(cursor, meal.startSecond);
+    cursor = Math.max(cursor, meal.endSecond);
+    fastingCycleStart = meal.endSecond;
+  }
+  if (cursor < DAY_END_SECOND) appendFasting(cursor, DAY_END_SECOND);
+
+  return [...sleepStates, ...fastingStates]
+    .sort((a, b) => a.startSecond - b.startSecond
+      || finiteNumber(b.metadata?.displayPriority, 0) - finiteNumber(a.metadata?.displayPriority, 0)
+      || a.intervalID.localeCompare?.(b.intervalID) || 0);
+}
+
+function progressAtSecond(intervals, secondValue) {
+  if (!Array.isArray(intervals) || !intervals.length) return 0;
+  const point = Math.max(DAY_START_SECOND, Math.min(DAY_END_SECOND, finiteNumber(secondValue, 0)));
+  const interval = intervals.find((candidate, index) => (
+    point >= candidate.startSecond
+      && (point < candidate.endSecond || (point === DAY_END_SECOND && index === intervals.length - 1))
+  )) ?? intervals.at(-1);
+  const start = finiteNumber(interval?.plannedProgressStart, interval?.plannedProgressEnd ?? 0);
+  const end = finiteNumber(interval?.plannedProgressEnd, start);
+  const duration = Math.max(1, finiteNumber(interval?.endSecond, 1) - finiteNumber(interval?.startSecond, 0));
+  const ratio = Math.max(0, Math.min(1, (point - finiteNumber(interval?.startSecond, 0)) / duration));
+  return start + ((end - start) * ratio);
+}
+
+export function projectSystemStateProgress(systemStateIntervals, primaryIntervals) {
+  return (systemStateIntervals ?? []).map((interval) => ({
+    ...interval,
+    plannedProgressStart: progressAtSecond(primaryIntervals, interval.startSecond),
+    plannedProgressEnd: progressAtSecond(primaryIntervals, interval.endSecond),
+    potentialPoints: 0,
+    progressWeightHint: 0,
+  }));
+}
+
+function clipSystemStateIntervals(systemStateIntervals, startSecond, endSecond, idSeed) {
+  const output = [];
+  for (const interval of systemStateIntervals ?? []) {
+    const start = Math.max(startSecond, interval.startSecond);
+    const end = Math.min(endSecond, interval.endSecond);
+    if (end <= start) continue;
+    if (start === interval.startSecond && end === interval.endSecond) {
+      output.push({ ...interval });
+      continue;
+    }
+    const originalDuration = Math.max(1, interval.endSecond - interval.startSecond);
+    const progressStart = finiteNumber(interval.plannedProgressStart, interval.plannedProgressEnd ?? 0);
+    const progressEnd = finiteNumber(interval.plannedProgressEnd, progressStart);
+    const progressAt = (point) => {
+      const ratio = Math.max(0, Math.min(1, (point - interval.startSecond) / originalDuration));
+      return progressStart + ((progressEnd - progressStart) * ratio);
+    };
+    output.push({
+      ...interval,
+      intervalID: stableUUID(`${idSeed}:state-clip:${interval.intervalID}:${start}:${end}`),
+      startSecond: start,
+      endSecond: end,
+      plannedProgressStart: progressAt(start),
+      plannedProgressEnd: progressAt(end),
+      metadata: {
+        ...(interval.metadata ?? {}),
+        clippedFromStateIntervalID: interval.intervalID,
+        displayTimeRange: `${displayClock(start)}–${displayClock(end)}`,
+      },
+    });
+  }
+  return output;
+}
+
+function neutralAlternativeCoverageInterval(interval) {
+  if (!['sleep', 'fasting'].includes(interval.intervalKind)) return interval;
+  return {
+    ...interval,
+    intervalKind: 'freeTime',
+    progressCategory: 'other',
+    progressWeightHint: 0,
+    potentialPoints: 0,
+    completionEvaluator: { type: 'presence' },
+    metadata: {
+      ...(interval.metadata ?? {}),
+      systemGenerated: false,
+      specialDayTile: false,
+      presentationKind: null,
+      displayTitle: null,
+      alternativeCoveragePlaceholder: true,
+      derivedFromPrimaryStateKind: interval.intervalKind,
+    },
+  };
+}
+
 function applyMetabolicContexts(intervals) {
   let hasReachedEatingWindow = false;
   return intervals.map((interval) => {
@@ -533,6 +765,12 @@ export function compileContinuousDay({
     originIntervalID: null,
     rejoinIntervalID: null,
     intervals: materializedIntervals,
+    systemStateIntervals: pathKind === 'alternative'
+      ? []
+      : buildPrimarySystemStateIntervals(scheduled, {
+          idSeed: `${idSeed}:${pathKey}:primary-states`,
+          context,
+        }),
   };
   validateContinuousPath(path, { requireFullDay: PRIMARY_KINDS.has(pathKind) });
   return path;
@@ -562,7 +800,7 @@ function progressTotal(intervals) {
   return intervals.reduce((total, interval) => total + Number(interval.potentialPoints ?? 0), 0);
 }
 
-function pathWith({ source, pathKind, pathKey, intervals, idSeed }) {
+function pathWith({ source, pathKind, pathKey, intervals, systemStateIntervals = [], idSeed }) {
   return {
     ...source,
     pathID: stableUUID(`${idSeed}:path:${pathKey}`),
@@ -571,6 +809,7 @@ function pathWith({ source, pathKind, pathKey, intervals, idSeed }) {
     originIntervalID: null,
     rejoinIntervalID: null,
     intervals,
+    systemStateIntervals,
   };
 }
 
@@ -615,11 +854,24 @@ export function freezePathAt(path, decisionSecond, { idSeed = 'fifoo-reroute' } 
     }
   }
 
+  const completedSystemStateIntervals = clipSystemStateIntervals(
+    path.systemStateIntervals,
+    DAY_START_SECOND,
+    point,
+    `${idSeed}:completed`,
+  );
+  const futureSystemStateIntervals = clipSystemStateIntervals(
+    path.systemStateIntervals,
+    point,
+    DAY_END_SECOND,
+    `${idSeed}:future`,
+  );
   const completedPath = pathWith({
     source: path,
     pathKind: 'completed',
     pathKey: 'completed',
     intervals: completed,
+    systemStateIntervals: completedSystemStateIntervals,
     idSeed,
   });
   const supersededFuturePath = pathWith({
@@ -627,6 +879,7 @@ export function freezePathAt(path, decisionSecond, { idSeed = 'fifoo-reroute' } 
     pathKind: 'chosen',
     pathKey: 'superseded-future',
     intervals: future,
+    systemStateIntervals: futureSystemStateIntervals,
     idSeed,
   });
   validateContinuousPath(completedPath);
@@ -663,6 +916,10 @@ export function stitchPrimaryPaths(completedPath, chosenPath, {
     pathKind: 'chosen',
     pathKey,
     intervals: [...completedPath.intervals, ...chosenPath.intervals],
+    systemStateIntervals: [
+      ...(completedPath.systemStateIntervals ?? []),
+      ...(chosenPath.systemStateIntervals ?? []),
+    ],
     idSeed,
   });
   validateContinuousPath(stitched, { requireFullDay: true });
@@ -728,7 +985,9 @@ export function compileAlternativeBranches(primaryPath, alternativePaths, { idSe
 
     const origin = primary[prefix];
     const rejoin = primarySuffix < primary.length ? primary[primarySuffix] : null;
-    const branchIntervals = candidate.slice(prefix + 1, candidateSuffix);
+    const branchIntervals = candidate
+      .slice(prefix + 1, candidateSuffix)
+      .map(neutralAlternativeCoverageInterval);
     if (branchIntervals[0].startSecond !== origin.endSecond) {
       throw new RangeError('An alternative must start exactly where its origin interval ends.');
     }
@@ -746,6 +1005,7 @@ export function compileAlternativeBranches(primaryPath, alternativePaths, { idSe
       originIntervalID: origin.intervalID,
       rejoinIntervalID: rejoin?.intervalID ?? null,
       intervals: branchIntervals,
+      systemStateIntervals: [],
       routeScore: alternative.routeScore ?? null,
       expectedProgress: alternative.expectedProgress ?? null,
     };
@@ -771,6 +1031,12 @@ export function validateDayGraph({ completedPath = null, chosenPath, alternative
 
   for (const path of alternativePaths) {
     validateContinuousPath(path);
+    if ((path.systemStateIntervals ?? []).length) {
+      throw new RangeError('Alternative paths cannot expose primary Sleep/Fasting state nodes.');
+    }
+    if (path.intervals.some((interval) => ['sleep', 'fasting'].includes(interval.intervalKind))) {
+      throw new RangeError('Alternative paths cannot contain Sleep/Fasting state intervals.');
+    }
     const originKind = intervalOwner.get(path.originIntervalID);
     if (!PRIMARY_KINDS.has(originKind)) {
       throw new RangeError('Alternative origin must belong to a completed or chosen path.');
@@ -788,4 +1054,8 @@ export const dayGraphInternals = Object.freeze({
   applyMetabolicContexts,
   defaultFillerKind,
   intervalIdentity,
+  buildPrimarySystemStateIntervals,
+  clipSystemStateIntervals,
+  neutralAlternativeCoverageInterval,
+  progressAtSecond,
 });

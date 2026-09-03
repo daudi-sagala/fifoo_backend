@@ -119,7 +119,7 @@ export async function persistCompiledDayPlan(client, {
   );
 
   const graphData = {
-    schema: completedPath ? 'fifoo.day-graph.v2' : 'fifoo.day-graph.v1',
+    schema: 'fifoo.day-graph.v3',
     dayStartSecond: 0,
     dayEndSecond: 86_400,
     completedPath,
@@ -404,7 +404,7 @@ export async function rerouteFutureDayPlan(client, {
     carriedLedgerEntryCount,
     progressSnapshot,
     dayPlan: {
-      schema: 'fifoo.day-graph.v2',
+      schema: 'fifoo.day-graph.v3',
       dayStartSecond: 0,
       dayEndSecond: 86_400,
       completedPath: optimized.completedPath,

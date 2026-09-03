@@ -142,3 +142,74 @@ test('future rerouting rejects a fixed candidate in elapsed time', () => {
     }],
   }), /before the reroute boundary/i);
 });
+
+test('meal alternatives carry the meal decision only while primary fasting state is recomputed from the selected meal time', () => {
+  const result = optimizeDayRoutes({
+    context: {
+      idSeed: 'meal-decision-state-routing',
+      wakeSecond: 7 * 3600,
+      sleepSecond: 23 * 3600,
+      populationPriors: { meal: 0.9 },
+    },
+    candidates: [
+      {
+        key: 'breakfast-8', decisionGroup: 'breakfast-time', kind: 'meal', required: true,
+        fixedStartSecond: 8 * 3600, durationMinutes: 30,
+        progressCategory: 'nutrition', progressWeightHint: 10, goalImpact: 0.8,
+      },
+      {
+        key: 'breakfast-9', decisionGroup: 'breakfast-time', kind: 'meal', required: true,
+        fixedStartSecond: 9 * 3600, durationMinutes: 30,
+        progressCategory: 'nutrition', progressWeightHint: 10, goalImpact: 0.79,
+      },
+      {
+        key: 'lunch', decisionGroup: 'lunch', kind: 'meal', required: true,
+        fixedStartSecond: 13 * 3600, durationMinutes: 30,
+        progressCategory: 'nutrition', progressWeightHint: 10, goalImpact: 0.8,
+      },
+    ],
+    alternativeCount: 1,
+  });
+
+  assert.ok(result.chosenPath.systemStateIntervals.length > 0);
+  assert.ok(result.alternativeBranches.length >= 1);
+  assert.ok(result.alternativeBranches.every((branch) => branch.systemStateIntervals.length === 0));
+  assert.ok(result.alternativeBranches.every((branch) => (
+    branch.intervals.every((interval) => !['sleep', 'fasting'].includes(interval.intervalKind))
+  )));
+
+  const chosenBreakfast = result.chosenPath.intervals.find((interval) => interval.intervalKind === 'meal');
+  const firstPostMealFasting = result.chosenPath.systemStateIntervals.find((interval) => (
+    interval.intervalKind === 'fasting'
+    && interval.startSecond >= chosenBreakfast.endSecond
+  ));
+  assert.equal(firstPostMealFasting.metadata.hourNumber, 1);
+  assert.equal(firstPostMealFasting.metadata.cycleStartSecond, chosenBreakfast.endSecond);
+});
+
+test('future-only rerouting splits primary system-state nodes at the immutable decision boundary', () => {
+  const currentPrimaryPath = optimizeDayRoutes({
+    context: { idSeed: 'state-boundary-before', wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 },
+    candidates: [
+      { key: 'breakfast', decisionGroup: 'breakfast', kind: 'meal', required: true, fixedStartSecond: 8 * 3600, durationMinutes: 30 },
+      { key: 'dinner', decisionGroup: 'dinner', kind: 'meal', required: true, fixedStartSecond: 19 * 3600, durationMinutes: 30 },
+    ],
+    alternativeCount: 0,
+  }).chosenPath;
+  const decisionSecond = 10 * 3600 + 20 * 60;
+  const result = optimizeFutureRoutes({
+    currentPrimaryPath,
+    decisionSecond,
+    context: { idSeed: 'state-boundary-after', wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 },
+    candidates: [
+      { key: 'lunch', decisionGroup: 'lunch', kind: 'meal', required: true, fixedStartSecond: 13 * 3600, durationMinutes: 30 },
+      { key: 'dinner', decisionGroup: 'dinner', kind: 'meal', required: true, fixedStartSecond: 19 * 3600, durationMinutes: 30 },
+    ],
+    alternativeCount: 0,
+  });
+
+  assert.ok(result.completedPath.systemStateIntervals.length > 0);
+  assert.ok(result.chosenPath.systemStateIntervals.length > 0);
+  assert.ok(result.completedPath.systemStateIntervals.every((interval) => interval.endSecond <= decisionSecond));
+  assert.ok(result.chosenPath.systemStateIntervals.every((interval) => interval.startSecond >= decisionSecond));
+});

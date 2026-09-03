@@ -7,7 +7,7 @@ import { persistNode } from './nodes.js';
 import { generateBackendRouteState } from './routes.js';
 import { gridRouteAnchorForNode, makeGridRoadGraph } from './gridRoadGraph.js';
 import { standardWeightLossDayRules } from '../rules/standardWeightLossDay.js';
-import { compileContinuousDay } from '../algorithms/dayGraph.js';
+import { compileContinuousDay, projectSystemStateProgress } from '../algorithms/dayGraph.js';
 import { allocateDailyBudget } from '../algorithms/progressEngine.js';
 import { activeDayPlanExists, persistCompiledDayPlan } from './dayPlanning.js';
 import { captureRoutingDecision, routeObservation } from './learningData.js';
@@ -252,6 +252,10 @@ export function buildStandardWeightLossDay({ userID, mapDate, rules = standardWe
   continuousPath.intervals = allocateDailyBudget(continuousPath.intervals, {
     categoryBudgets: rules.categoryBudgets,
   });
+  continuousPath.systemStateIntervals = projectSystemStateProgress(
+    continuousPath.systemStateIntervals ?? [],
+    continuousPath.intervals,
+  );
   continuousPath.routeScore = null;
   continuousPath.expectedProgress = continuousPath.intervals.reduce((total, interval) => (
     total + Number(interval.potentialPoints ?? 0) * Number(
@@ -264,7 +268,7 @@ export function buildStandardWeightLossDay({ userID, mapDate, rules = standardWe
     rulesHash: hashRules(rules),
     nodes: generated,
     dayGraph: {
-      schema: 'fifoo.day-graph.v1',
+      schema: 'fifoo.day-graph.v3',
       chosenPath: continuousPath,
       alternativeBranches: [],
     },
