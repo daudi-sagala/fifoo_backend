@@ -343,3 +343,9 @@ Fifoo can now turn high-value profile/route knowledge gaps into gamified Road En
 The authoritative Day Graph now separates **decision/activity intervals** from **primary-route state nodes**. Completed/chosen paths carry an additive `systemStateIntervals` layer that always generates hourly Sleep/Nap and Fasting nodes from the selected route decisions. The iOS client renders them by priority (`activity > sleep/nap > fasting`). Alternative branches contain no Sleep/Fasting state nodes; neutral coverage placeholders keep branch timing connected until the user chooses an activity decision, at which point the normal future-only rerouter recomputes the primary state layer.
 
 No SQL migration is required. The additive payload schema is `fifoo.day-graph.v3`.
+
+## Primary activity-state + map feedback fixes (v0.13.0)
+
+Sleep/Nap/Fasting state nodes are now explicitly persisted as primary completed/chosen activity state, with future state recomputed on every authoritative reroute and no state nodes on alternatives. User day-start/day-end boundaries drive sleep timing, including third-shift daytime sleep. User-facing state titles no longer expose internal hour counters.
+
+For the companion iOS progress-badge/countdown/animation regression data, run `npm run seed:ui-fixes`. See `ADDITIONAL_MAP_FIXES_V0_13.md` and `UI_FIXES_SEED.md`.

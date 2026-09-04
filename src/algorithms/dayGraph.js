@@ -69,10 +69,10 @@ function normalizedSleepWindows(context = {}) {
   }
 
   const wakeSecond = Math.max(0, Math.min(DAY_END_SECOND, Math.trunc(
-    finiteNumber(context?.wakeSecond, 7 * 3600),
+    finiteNumber(context?.dayStartSecond ?? context?.wakeSecond, 7 * 3600),
   )));
   const sleepSecond = Math.max(0, Math.min(DAY_END_SECOND, Math.trunc(
-    finiteNumber(context?.sleepSecond, 23 * 3600),
+    finiteNumber(context?.dayEndSecond ?? context?.sleepSecond, 23 * 3600),
   )));
 
   // Normal schedule: sleep starts late in the day and continues across midnight.
@@ -193,7 +193,7 @@ function specialIntervalMetadata(interval, {
     presentationKind,
     hourNumber,
     cycleStartSecond,
-    displayTitle: `${presentationKind === 'nap' ? 'Nap' : presentationKind === 'sleep' ? 'Sleep' : 'Fasting'} Hour ${hourNumber}`,
+    displayTitle: `${presentationKind === 'nap' ? 'Nap' : presentationKind === 'sleep' ? 'Sleep' : 'Fasting'} hour`,
     displayTimeRange: `${displayClock(interval.startSecond)}–${displayClock(interval.endSecond)}`,
   };
 }
@@ -451,6 +451,8 @@ function systemStateSeed({
     metadata: {
       systemGenerated: true,
       primaryStateNode: true,
+      routeActivity: true,
+      routeMembership: 'primary',
       ...metadata,
     },
   };
@@ -770,7 +772,14 @@ export function compileContinuousDay({
       : buildPrimarySystemStateIntervals(scheduled, {
           idSeed: `${idSeed}:${pathKey}:primary-states`,
           context,
-        }),
+        }).map((interval) => ({
+          ...interval,
+          metadata: {
+            ...(interval.metadata ?? {}),
+            routeActivity: true,
+            routeMembership: pathKind,
+          },
+        })),
   };
   validateContinuousPath(path, { requireFullDay: PRIMARY_KINDS.has(pathKind) });
   return path;
@@ -859,13 +868,29 @@ export function freezePathAt(path, decisionSecond, { idSeed = 'fifoo-reroute' } 
     DAY_START_SECOND,
     point,
     `${idSeed}:completed`,
-  );
+  ).map((interval) => ({
+    ...interval,
+    lifecycleStatus: interval.endSecond <= point ? 'completed' : interval.lifecycleStatus,
+    metadata: {
+      ...(interval.metadata ?? {}),
+      routeActivity: true,
+      routeMembership: 'completed',
+    },
+  }));
   const futureSystemStateIntervals = clipSystemStateIntervals(
     path.systemStateIntervals,
     point,
     DAY_END_SECOND,
     `${idSeed}:future`,
-  );
+  ).map((interval) => ({
+    ...interval,
+    lifecycleStatus: interval.startSecond <= point && interval.endSecond > point ? 'active' : 'planned',
+    metadata: {
+      ...(interval.metadata ?? {}),
+      routeActivity: true,
+      routeMembership: 'chosen',
+    },
+  }));
   const completedPath = pathWith({
     source: path,
     pathKind: 'completed',

@@ -325,6 +325,112 @@ async function seedSocialTestData(client, userID) {
   return { friends: friendRows.length, conversations: 2, communityPosts: friendRows.length };
 }
 
+
+async function upsertSleepSchedule(client, userID, { wake, bed }) {
+  for (const [scheduleKey, clockTime] of [['wake', wake], ['bed', bed]]) {
+    await client.query(
+      `INSERT INTO user_schedule_preferences(
+         user_id,schedule_key,clock_time,flexibility_minutes,is_fixed,source,preference_data
+       ) VALUES ($1,$2,$3::time,30,FALSE,'dev_ui_fix_seed',$4::jsonb)
+       ON CONFLICT(user_id,schedule_key) DO UPDATE SET
+         clock_time=EXCLUDED.clock_time,
+         source=EXCLUDED.source,
+         preference_data=EXCLUDED.preference_data,
+         updated_at=NOW()`,
+      [userID, scheduleKey, clockTime, JSON.stringify({ uiFixSeed: true })],
+    );
+  }
+}
+
+async function seedUIFixScenarios(client, {
+  mapDate,
+  timeZone,
+  rules,
+  password,
+}) {
+  const profiles = [
+    {
+      key: 'standard',
+      email: 'ui.standard@fifoo.local',
+      username: 'ui_standard',
+      firstName: 'UI',
+      lastName: 'Standard',
+      wake: '07:00:00',
+      bed: '23:00:00',
+      currentTime: '09:55:00',
+      note: 'Five minutes before the morning workout: tests NEXT countdown, fasting tile, positive progress badges.',
+    },
+    {
+      key: 'active-workout',
+      email: 'ui.workout@fifoo.local',
+      username: 'ui_workout',
+      firstName: 'UI',
+      lastName: 'Workout',
+      wake: '06:30:00',
+      bed: '22:30:00',
+      currentTime: '10:08:00',
+      note: 'Inside the morning workout: tests current-tile halo, active countdown and completion transition.',
+    },
+    {
+      key: 'third-shift',
+      email: 'ui.thirdshift@fifoo.local',
+      username: 'ui_thirdshift',
+      firstName: 'UI',
+      lastName: 'ThirdShift',
+      wake: '16:00:00',
+      bed: '08:00:00',
+      currentTime: '14:00:00',
+      note: 'User day starts at 4 PM and ends at 8 AM: tests daytime Sleep hour tiles inside the personal 24-hour rhythm.',
+    },
+    {
+      key: 'dinner-transition',
+      email: 'ui.dinner@fifoo.local',
+      username: 'ui_dinner',
+      firstName: 'UI',
+      lastName: 'Dinner',
+      wake: '07:00:00',
+      bed: '23:30:00',
+      currentTime: '18:55:00',
+      note: 'Five minutes before dinner: tests high-priority meal countdown and positive/negative empty-tile opportunity badges.',
+    },
+  ];
+
+  const results = [];
+  for (const profile of profiles) {
+    const user = await ensureTestUser(client, {
+      email: profile.email,
+      username: profile.username,
+      password,
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      resetPassword: true,
+    });
+    await upsertSleepSchedule(client, user.user_id, profile);
+    const day = await generateDailyPathForUser(client, {
+      userID: user.user_id,
+      mapDate,
+      timeZoneIdentifier: timeZone,
+      force: true,
+      rules,
+      currentDayTimeSeconds: clockSeconds(profile.currentTime, timeZone),
+      maxAlternatives: 2,
+    });
+    results.push({
+      key: profile.key,
+      email: profile.email,
+      username: profile.username,
+      password,
+      wake: profile.wake,
+      bed: profile.bed,
+      currentTime: profile.currentTime,
+      note: profile.note,
+      userID: user.user_id,
+      dayMapID: day.dayMapID,
+    });
+  }
+  return results;
+}
+
 async function seedCatalog(client, userID) {
   const exercises = await seedExercises(client);
   const workouts = await seedWorkouts(client, exercises);
@@ -360,6 +466,7 @@ async function main() {
       `--current-time <clock>     HH:MM[:SS] or now; splits Completed/Future\n` +
       `--alternatives <0...5>     future route alternatives (default 3)\n` +
       `--no-day                   seed account/catalog only\n` +
+      `--ui-fixes                 add four UI/routing regression accounts\n` +
       `--reset-password           replace password on an existing custom account\n`);
     return;
   }
@@ -395,7 +502,15 @@ async function main() {
         currentDayTimeSeconds,
         maxAlternatives,
       });
-    return { user, catalog, day };
+    const uiFixes = hasFlag('ui-fixes')
+      ? await seedUIFixScenarios(client, {
+        mapDate,
+        timeZone,
+        rules: dayRules,
+        password,
+      })
+      : [];
+    return { user, catalog, day, uiFixes };
   });
 
   console.log('\nFifoo development data seeded.');
@@ -409,6 +524,13 @@ async function main() {
     console.log(`Generated stops:${result.day.generatedNodeIDs.length}`);
     console.log(`Rules:          ${dayRules.name} v${dayRules.version}`);
     console.log(`Alternatives:   ${result.day.routeState?.alternativeRoutes?.length ?? 0}`);
+  }
+  if (result.uiFixes?.length) {
+    console.log('\nUI-fix regression accounts:');
+    for (const profile of result.uiFixes) {
+      console.log(`- ${profile.username} / ${profile.password} — ${profile.note}`);
+      console.log(`  wake=${profile.wake} bed=${profile.bed} simulatedNow=${profile.currentTime}`);
+    }
   }
   console.log('');
 }

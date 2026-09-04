@@ -36,6 +36,11 @@ async function insertPath(client, planID, path, pathOrder) {
       json({
         selectedCandidateKeys: path.selectedCandidateKeys ?? [],
         skippedDecisionGroups: path.skippedDecisionGroups ?? [],
+        // Sleep/Nap/Fasting are authoritative primary-route activities even
+        // though they live in an overlapping presentation layer rather than
+        // the dominant continuous interval list. Persist them with the path
+        // row so completed/chosen membership survives every reload/audit.
+        primaryActivityStateIntervals: path.systemStateIntervals ?? [],
       }),
     ],
   );

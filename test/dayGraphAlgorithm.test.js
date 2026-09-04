@@ -110,6 +110,25 @@ test('future-only freeze splits at the exact second and locks value rather than 
   );
 });
 
+
+
+test('day-start/day-end aliases drive the user sleep window and preserve internal hour numbering', () => {
+  const path = compileContinuousDay({
+    idSeed: 'day-boundary-aliases',
+    context: { dayStartSecond: 16 * 3600, dayEndSecond: 8 * 3600 },
+    scheduledIntervals: [],
+  });
+  const sleep = path.systemStateIntervals.filter((interval) => (
+    interval.metadata?.presentationKind === 'sleep'
+  ));
+  assert.ok(sleep.length >= 8);
+  assert.ok(sleep.every((interval) => interval.metadata?.displayTitle === 'Sleep hour'));
+  assert.equal(sleep[0].metadata?.hourNumber, 1);
+  assert.equal(sleep.at(-1).metadata?.hourNumber, 8);
+  assert.ok(sleep.every((interval) => interval.metadata?.routeActivity === true));
+  assert.ok(sleep.every((interval) => interval.metadata?.routeMembership === 'chosen'));
+});
+
 test('sleep fillers become numbered hourly tiles across midnight', () => {
   const path = compileContinuousDay({
     idSeed: 'sleep-hours',
@@ -128,10 +147,10 @@ test('sleep fillers become numbered hourly tiles across midnight', () => {
   ));
 
   assert.deepEqual(morningSleep.map((interval) => interval.metadata.displayTitle), [
-    'Sleep Hour 3', 'Sleep Hour 4', 'Sleep Hour 5', 'Sleep Hour 6', 'Sleep Hour 7',
+    'Sleep hour', 'Sleep hour', 'Sleep hour', 'Sleep hour', 'Sleep hour',
   ]);
   assert.deepEqual(eveningSleep.map((interval) => interval.metadata.displayTitle), [
-    'Sleep Hour 1', 'Sleep Hour 2',
+    'Sleep hour', 'Sleep hour',
   ]);
   assert.equal(morningSleep[0].metadata.displayTimeRange, '12:00 AM–1:00 AM');
   assert.equal(eveningSleep[0].metadata.displayTimeRange, '10:00 PM–11:00 PM');
@@ -155,10 +174,10 @@ test('awake gaps are visible fasting tiles and fasting hour count continues thro
       && interval.endSecond <= 12 * 3600
   ));
 
-  assert.equal(afterBreakfast[0].metadata.displayTitle, 'Fasting Hour 1');
+  assert.equal(afterBreakfast[0].metadata.displayTitle, 'Fasting hour');
   const afterWorkout = afterBreakfast.find((interval) => interval.startSecond === 10 * 3600);
   assert.ok(afterWorkout);
-  assert.equal(afterWorkout.metadata.displayTitle, 'Fasting Hour 3');
+  assert.equal(afterWorkout.metadata.displayTitle, 'Fasting hour');
   assert.equal(afterWorkout.metadata.hourNumber, 3);
 });
 
@@ -172,7 +191,7 @@ test('scheduled daytime sleep is classified as a separately numbered nap', () =>
   });
   const nap = path.intervals.filter((interval) => interval.metadata?.presentationKind === 'nap');
   assert.deepEqual(nap.map((interval) => interval.metadata.displayTitle), [
-    'Nap Hour 1', 'Nap Hour 2', 'Nap Hour 3',
+    'Nap hour', 'Nap hour', 'Nap hour',
   ]);
   assert.equal(nap.at(-1).metadata.displayTimeRange, '4:00 PM–4:30 PM');
 });
@@ -246,7 +265,7 @@ test('fasting remains in graph but its visible tile is suppressed when that fast
     && interval.metadata?.hourNumber === 4
     && interval.metadata?.cycleStartSecond === 8 * 3600
   ));
-  assert.equal(fastingHour4?.metadata?.displayTitle, 'Fasting Hour 4');
+  assert.equal(fastingHour4?.metadata?.displayTitle, 'Fasting hour');
   assert.equal(fastingHour4?.metadata?.specialDayTile, true);
 });
 
@@ -270,7 +289,7 @@ test('sleep crossing the wake boundary becomes overnight sleep then a nap', () =
   ));
   assert.deepEqual(
     lateSleep.map((interval) => interval.metadata?.displayTitle),
-    ['Sleep Hour 7', 'Sleep Hour 8', 'Nap Hour 1'],
+    ['Sleep hour', 'Sleep hour', 'Nap hour'],
   );
   assert.ok(Math.abs(
     lateSleep.reduce((total, interval) => total + interval.progressWeightHint, 0) - 3
@@ -368,6 +387,6 @@ test('primary system-state layer keeps overnight sleep and daytime nap classific
     && ['sleep', 'nap'].includes(interval.metadata?.presentationKind)
   ));
   assert.deepEqual(relevant.map((interval) => interval.metadata.displayTitle), [
-    'Sleep Hour 7', 'Sleep Hour 8', 'Nap Hour 1',
+    'Sleep hour', 'Sleep hour', 'Nap hour',
   ]);
 });

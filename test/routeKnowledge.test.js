@@ -42,7 +42,7 @@ test('third-shift sleep window can be represented as protected daytime sleep', (
   });
   const sleep = path.intervals.filter((interval) => interval.intervalKind === 'sleep');
   assert.ok(sleep.length >= 8);
-  assert.equal(sleep[0].metadata.displayTitle, 'Sleep Hour 1');
-  assert.equal(sleep.at(-1).metadata.displayTitle, 'Sleep Hour 8');
+  assert.equal(sleep[0].metadata.displayTitle, 'Sleep hour');
+  assert.equal(sleep.at(-1).metadata.displayTitle, 'Sleep hour');
   assert.equal(path.intervals.find((interval) => interval.startSecond === 0)?.intervalKind, 'fasting');
 });

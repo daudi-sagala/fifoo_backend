@@ -212,4 +212,8 @@ test('future-only rerouting splits primary system-state nodes at the immutable d
   assert.ok(result.chosenPath.systemStateIntervals.length > 0);
   assert.ok(result.completedPath.systemStateIntervals.every((interval) => interval.endSecond <= decisionSecond));
   assert.ok(result.chosenPath.systemStateIntervals.every((interval) => interval.startSecond >= decisionSecond));
+  assert.ok(result.completedPath.systemStateIntervals.every((interval) => interval.metadata?.routeMembership === 'completed'));
+  assert.ok(result.completedPath.systemStateIntervals.every((interval) => interval.lifecycleStatus === 'completed'));
+  assert.ok(result.chosenPath.systemStateIntervals.every((interval) => interval.metadata?.routeMembership === 'chosen'));
+  assert.ok(result.chosenPath.systemStateIntervals.every((interval) => ['active', 'planned'].includes(interval.lifecycleStatus)));
 });

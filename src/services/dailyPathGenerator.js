@@ -481,6 +481,11 @@ async function userSleepDayContext(client, userID, fallback = {}) {
     : [{ startSecond: sleepSecond, endSecond: wakeSecond }];
   return {
     ...fallback,
+    // dayStart/dayEnd are the user's personal wake/bed boundaries inside the
+    // calendar-day projection. Keep the legacy aliases for compatibility with
+    // older rules while routing and rerouting use the explicit semantics.
+    dayStartSecond: wakeSecond,
+    dayEndSecond: sleepSecond,
     wakeSecond,
     sleepSecond,
     sleepWindows,
