@@ -1,6 +1,6 @@
 {
   "name": "fifoo-game-backend",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,8 +9,6 @@
     "check": "find src test scripts -name '*.js' -print0 | xargs -0 -n1 node --check",
     "test": "node --test",
     "migrate": "node src/migrate.js",
-    "seed:dev": "node src/dev/seedTestData.js",
-    "seed:ui-fixes": "node src/dev/seedTestData.js --ui-fixes --force-day",
     "generate:daily": "node src/jobs/generateDailyPaths.js",
     "verify:phase3": "node scripts/verify-phase3-e2e.js",
     "export:learning": "node scripts/export-learning-data.js",
@@ -22,7 +20,9 @@
     "verify:phase6": "node scripts/verify-phase6-model-ops.js",
     "rollback:phase6": "node scripts/rollback-phase6-model.js",
     "verify:phase7": "node scripts/verify-phase7-support-planning.js",
-    "verify:phase8": "node scripts/verify-phase8-onboarding.js"
+    "verify:phase8": "node scripts/verify-phase8-onboarding.js",
+    "seed:production-test": "node scripts/seed-production-test-data.js --confirm-temporary-production-seed",
+    "cleanup:production-test": "node scripts/seed-production-test-data.js --cleanup --confirm-temporary-production-seed"
   },
   "engines": {
     "node": ">=22"

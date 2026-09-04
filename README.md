@@ -160,7 +160,6 @@ npm run migrate
 Development only (`NODE_ENV=production` is refused):
 
 ```bash
-npm run seed:dev
 ```
 
 Default test login:
@@ -176,9 +175,6 @@ the demo account.
 Useful options:
 
 ```bash
-npm run seed:dev -- --date 2026-08-29 --force-day
-npm run seed:dev -- --email test@example.com --username tester --password 'ExamplePass123!' --reset-password
-npm run seed:dev -- --no-day
 ```
 
 ### Generate daily paths
@@ -248,7 +244,6 @@ transaction order, migration, and socket payload.
 For the seeded `demo.weightloss@fifoo.local` account, a richer full-day visual fixture is available via the `demo-aug29` rules set:
 
 ```bash
-npm run seed:dev -- \
   --date 2026-08-29 \
   --rules demo-aug29 \
   --current-time 15:45:53 \
@@ -348,4 +343,6 @@ No SQL migration is required. The additive payload schema is `fifoo.day-graph.v3
 
 Sleep/Nap/Fasting state nodes are now explicitly persisted as primary completed/chosen activity state, with future state recomputed on every authoritative reroute and no state nodes on alternatives. User day-start/day-end boundaries drive sleep timing, including third-shift daytime sleep. User-facing state titles no longer expose internal hour counters.
 
-For the companion iOS progress-badge/countdown/animation regression data, run `npm run seed:ui-fixes`. See `ADDITIONAL_MAP_FIXES_V0_13.md` and `UI_FIXES_SEED.md`.
+## Temporary production test data
+
+The old development seed has been removed. For temporary production test accounts/catalog/social/day-map data, use `npm run seed:production-test`; remove it before launch with `npm run cleanup:production-test`. Both commands require `NODE_ENV=production` and `ALLOW_TEMP_PRODUCTION_SEED=YES`. See `TEMP_PRODUCTION_SEED.md`.
