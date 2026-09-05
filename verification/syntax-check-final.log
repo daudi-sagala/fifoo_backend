@@ -1,0 +1,4 @@
+
+> fifoo-game-backend@0.15.0 check
+> find src test scripts -name '*.js' -print0 | xargs -0 -n1 node --check
+

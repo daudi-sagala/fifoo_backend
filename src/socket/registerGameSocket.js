@@ -1,3 +1,4 @@
+import { registerSchedulerSocket } from '../notifications/socket.js';
 import { pool, withTransaction } from '../db.js';
 import { createTokenWindow } from '../http/rateLimit.js';
 import { config } from '../config.js';
@@ -125,7 +126,7 @@ function registerMutation(socket, io, event, mutate, broadcast) {
 }
 
 async function emitNode(io, room, result) {
-  io.to(room).emit(IN.nodeUpserted, { node: result.node, revision: result.revision });
+  io.to(room).emit(IN.nodeUpserted, { node: result.node, revision: result.revision, mapDate: result.mapDate });
 }
 
 async function refreshAndBroadcastActivitySupport(io, {
@@ -166,7 +167,7 @@ async function emitNodeAndRefreshSupport({ io, socket, room, result, envelope })
 }
 
 async function emitDeleteAndRefreshSupport({ io, socket, room, result, envelope }) {
-  io.to(room).emit(IN.nodeDeleted, { nodeID: { rawValue: result.nodeID }, revision: result.revision });
+  io.to(room).emit(IN.nodeDeleted, { nodeID: { rawValue: result.nodeID }, revision: result.revision, mapDate: result.mapDate });
   await refreshAndBroadcastActivitySupport(io, {
     userID: socket.data.authUserID,
     timeZoneIdentifier: envelope?.context?.timeZoneIdentifier,
@@ -200,6 +201,7 @@ export function registerGameSocket(io) {
     socket.data.authUserID = null;
     socket.data.deviceID = null;
     socket.data.dayRoom = null;
+    registerSchedulerSocket(socket);
 
     const authenticationDeadline = setTimeout(() => {
       if (!socket.data.authUserID) {
@@ -614,7 +616,7 @@ export function registerGameSocket(io) {
     // completed/chosen/alternate route geometry as the source of truth.
     registerMutation(socket, io, OUT.routeBuild,
       ({ client, dayMap, payload }) => generateBackendRouteState(client, { dayMap, payload }),
-      async ({ io, room, result }) => io.to(room).emit(IN.routeState, { routeState: result.routeState, revision: result.revision }));
+      async ({ io, room, result }) => io.to(room).emit(IN.routeState, { routeState: result.routeState, revision: result.revision, mapDate: result.mapDate }));
 
     // Opt-in v2 planning event. It publishes the richer Day Graph separately;
     // the established game:route:state payload remains byte-for-byte compatible.
@@ -641,6 +643,7 @@ export function registerGameSocket(io) {
       }),
       async ({ io, room, result }) => io.to(room).emit(IN.dayPlanState, {
         dayPlan: result.dayPlan,
+        mapDate: result.mapDate,
         progressSnapshot: result.progressSnapshot,
         planRevision: result.planRevision,
         revision: result.revision,
@@ -704,7 +707,7 @@ export function registerGameSocket(io) {
 
     registerMutation(socket, io, OUT.routeSelect,
       ({ client, dayMap, payload }) => selectBackendAlternativeRoute(client, { dayMap, payload }),
-      async ({ io, room, result }) => io.to(room).emit(IN.routeState, { routeState: result.routeState, revision: result.revision }));
+      async ({ io, room, result }) => io.to(room).emit(IN.routeState, { routeState: result.routeState, revision: result.revision, mapDate: result.mapDate }));
 
     // Client-authored route geometry is intentionally disabled. Keep the event
     // name only so older clients receive a typed terminal error rather than

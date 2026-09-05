@@ -1,6 +1,6 @@
 {
   "name": "fifoo-game-backend",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -22,7 +22,9 @@
     "verify:phase7": "node scripts/verify-phase7-support-planning.js",
     "verify:phase8": "node scripts/verify-phase8-onboarding.js",
     "seed:production-test": "node scripts/seed-production-test-data.js --confirm-temporary-production-seed",
-    "cleanup:production-test": "node scripts/seed-production-test-data.js --cleanup --confirm-temporary-production-seed"
+    "cleanup:production-test": "node scripts/seed-production-test-data.js --cleanup --confirm-temporary-production-seed",
+    "test:notifications": "node --test test/notification*.test.js",
+    "verify:notifications:db": "node scripts/verify-notifications-db.js"
   },
   "engines": {
     "node": ">=22"

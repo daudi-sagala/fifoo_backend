@@ -287,6 +287,7 @@ export async function loadSnapshot(client, dayMap) {
 
   return {
     revision: Number(dayMap.revision),
+    mapDate: dayMap.map_date instanceof Date ? dayMap.map_date.toISOString().slice(0,10) : String(dayMap.map_date ?? '').slice(0,10),
     nodes: hydratedNodes,
     routeState: route.rows[0]?.route_data ?? emptyRouteState(),
     revealedTiles: reveals.rows.map((row) => ({

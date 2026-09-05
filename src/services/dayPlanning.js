@@ -1,3 +1,4 @@
+import { presentationIdentity } from '../algorithms/presentationIdentity.js';
 import { calculateProgressSnapshot, createLedgerEntry } from '../algorithms/progressEngine.js';
 import { stitchPrimaryPaths, validateDayGraph } from '../algorithms/dayGraph.js';
 import { optimizeFutureRoutes } from '../algorithms/routingEngine.js';
@@ -19,7 +20,7 @@ function potentialTotal(path) {
 function normalizeSystemAction(systemAction, decisionSecond) {
   if (!systemAction || typeof systemAction !== 'object') return null;
   const action = String(systemAction.action ?? '').trim();
-  if (!['breakFast', 'iAmAwake'].includes(action)) return null;
+  if (!['breakFast', 'iAmAwake', 'goToSleep'].includes(action)) return null;
   return {
     action,
     intervalID: systemAction.intervalID ?? null,
@@ -31,6 +32,19 @@ function normalizeSystemAction(systemAction, decisionSecond) {
 function contextAfterSystemAction(context, systemAction) {
   if (!systemAction) return context;
   const decisionSecond = systemAction.decisionSecond;
+  if (systemAction.action === 'goToSleep') {
+    const wake = Number(context.wakeSecond ?? 7 * 3600);
+    const end = wake > decisionSecond ? wake : 86_400;
+    const windows = Array.isArray(context.sleepWindows) ? context.sleepWindows : [];
+    return {
+      ...context,
+      sleepWindows: [...windows.filter(w => Number(w.endSecond) <= decisionSecond || Number(w.startSecond) >= end),
+        { startSecond: decisionSecond, endSecond: end }],
+      hardBusyIntervals: [...(context.hardBusyIntervals ?? []),
+        { startSecond: decisionSecond, endSecond: end, systemSleepDecision: true }],
+      systemStateOverride: { ...(context.systemStateOverride ?? {}), sleepingSinceSecond: decisionSecond },
+    };
+  }
   if (systemAction.action !== 'iAmAwake') return context;
 
   const fallbackWake = Math.max(0, Math.min(86_400, Math.trunc(Number(
@@ -60,6 +74,10 @@ function contextAfterSystemAction(context, systemAction) {
     ...context,
     sleepWindows: clipped,
     wakeOverrideSecond: decisionSecond,
+    hardBusyIntervals: (context.hardBusyIntervals ?? []).flatMap(w => {
+      if (!w.systemSleepDecision || w.endSecond <= decisionSecond) return [w];
+      return w.startSecond < decisionSecond ? [{ ...w, endSecond: decisionSecond }] : [];
+    }),
     systemStateOverride: {
       ...(context.systemStateOverride ?? {}),
       wokeAtSecond: decisionSecond,
@@ -67,7 +85,21 @@ function contextAfterSystemAction(context, systemAction) {
   };
 }
 
-function candidatesAfterSystemAction(candidates, systemAction) {
+function candidatesAfterSystemAction(candidates, systemAction, context = {}) {
+  if (systemAction?.action === 'goToSleep') {
+    const start = systemAction.decisionSecond;
+    const window = (context.hardBusyIntervals ?? []).find(w => w.systemSleepDecision && w.startSecond === start);
+    const end = window?.endSecond ?? 86_400;
+    const retained = (candidates ?? []).filter(c => {
+      const s = Number(c.fixedStartSecond ?? c.earliestStartSecond ?? start);
+      const e = s + Number(c.durationSeconds ?? Number(c.durationMinutes ?? 1) * 60);
+      return e <= start || s >= end;
+    });
+    // An excluded sentinel lets the optimizer produce a coverage-only day;
+    // it is never scheduled or exposed as a selectable sleep candidate.
+    return retained.length ? retained : [{key:'sleep-coverage',kind:'freeTime',required:false,hardExcluded:true,
+      earliestStartSecond:start,latestEndSecond:86_400,durationSeconds:1}];
+  }
   if (!systemAction || systemAction.action !== 'breakFast') return candidates;
   const start = systemAction.decisionSecond;
   const durationSeconds = Math.min(30 * 60, Math.max(1, 86_400 - start));
@@ -211,6 +243,14 @@ export async function persistCompiledDayPlan(client, {
       WHERE day_map_id=$1 AND plan_status='active'`,
     [dayMap.day_map_id],
   );
+
+  // Stable presentation keys are additive; never replace interval IDs used by the ledger.
+  for (const path of [chosenPath, ...alternativeBranches].filter(Boolean)) {
+    for (const interval of path.intervals) {
+      const scope = path.pathKind === 'alternative' ? `alternate:${path.selectedCandidateKeys?.join('|') ?? path.pathKey}` : 'primary';
+      interval.metadata = { ...(interval.metadata ?? {}), presentationKey: presentationIdentity(interval, {mapDate,scope}) };
+    }
+  }
 
   const graphData = {
     schema: 'fifoo.day-graph.v4',
@@ -381,7 +421,14 @@ export async function rerouteFutureDayPlan(client, {
     ...(previous.routing_context ?? {}),
     ...(routingContext ?? {}),
   }, normalizedSystemAction);
-  const effectiveCandidates = candidatesAfterSystemAction(candidates, normalizedSystemAction);
+  const effectiveCandidates = candidatesAfterSystemAction(candidates, normalizedSystemAction, effectiveRoutingContext);
+
+  if (normalizedSystemAction?.action === 'goToSleep') {
+    const activeInterval = currentPrimaryPath.intervals.find(i => String(i.intervalID) === String(normalizedSystemAction.intervalID));
+    if (!activeInterval || decisionSecond < activeInterval.startSecond || decisionSecond >= activeInterval.endSecond) {
+      throw new RangeError('Open the current schedule before starting sleep.');
+    }
+  }
 
   if (boundaryOutcome) {
     const decision = Number(decisionSecond);
@@ -522,6 +569,7 @@ export async function rerouteFutureDayPlan(client, {
   });
   return {
     ...persisted,
+    mapDate: typeof mapDate === 'string' ? mapDate : new Date(mapDate).toISOString().slice(0,10),
     decisionSecond: optimized.decisionSecond,
     rerouteReason,
     effectiveAt: new Date().toISOString(),
@@ -571,6 +619,7 @@ export async function loadAuthoritativeDayPlanState(client, {
 
   return {
     dayPlan: row.graph_data,
+    mapDate: typeof dayMap.map_date === 'string' ? dayMap.map_date.slice(0,10) : (dayMap.map_date ? new Date(dayMap.map_date).toISOString().slice(0,10) : null),
     progressSnapshot,
     planRevision: Number(row.plan_revision),
     rerouteReason: row.reroute_reason ?? null,

@@ -169,6 +169,7 @@ export async function refreshAdaptiveRouteForUser({
         evaluation,
         dayPlanState: {
           dayPlan: result.dayPlan,
+          mapDate,
           progressSnapshot: result.progressSnapshot,
           planRevision: result.planRevision,
           revision,

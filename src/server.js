@@ -1,3 +1,4 @@
+import { startNotificationWorker, stopNotificationWorker } from './notifications/worker.js';
 import http from 'node:http';
 import express from 'express';
 import cors from 'cors';
@@ -141,6 +142,7 @@ server.listen(config.port, () => {
     predictionModelOpsEnabled: config.predictionModelOpsEnabled,
     predictionRuntimeMode: config.predictionRuntimeMode,
   });
+  startNotificationWorker();
   startDailyPathScheduler();
   startActivitySupportScheduler(io);
   startAdaptiveRouteFreshnessScheduler(io);
@@ -152,6 +154,7 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info('server shutdown started', { signal });
+  stopNotificationWorker();
   stopDailyPathScheduler();
   stopActivitySupportScheduler();
   stopAdaptiveRouteFreshnessScheduler();

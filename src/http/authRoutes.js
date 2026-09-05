@@ -1,3 +1,4 @@
+import { hashOpaqueToken } from '../lib/authCrypto.js';
 import express from 'express';
 import { withClient, withTransaction } from '../db.js';
 import { GameError, asGameError } from '../lib/errors.js';
@@ -124,16 +125,27 @@ authRouter.get('/me', asyncRoute(async (req, res) => {
 
 authRouter.post('/logout', asyncRoute(async (req, res) => {
   await withClient(async (client) => {
-    if (req.body?.refreshToken) await revokeByRefreshToken(client, req.body.refreshToken);
     const accessToken = bearerToken(req);
-    if (accessToken) await revokeByAccessToken(client, accessToken);
+    if (accessToken) {
+      try {
+        const account = await verifyAccessToken(client, accessToken);
+        await client.query(`DELETE FROM notification_devices WHERE user_id=$1 AND device_id IN
+          (SELECT device_id FROM auth_sessions WHERE access_token_hash=$2)`,
+          [account.user_id, hashOpaqueToken(accessToken)]);
+      } catch (error) { if (error?.code !== 'unauthorized') throw error; }
+      await revokeByAccessToken(client, accessToken);
+    }
+    if (req.body?.refreshToken) await revokeByRefreshToken(client, req.body.refreshToken);
   });
   res.json({ success: true });
 }));
 
 authRouter.post('/logout-all', asyncRoute(async (req, res) => {
   const row = await requireHTTPUser(req);
-  await withClient((client) => revokeAllUserSessions(client, row.user_id));
+  await withClient(async (client) => {
+    await revokeAllUserSessions(client, row.user_id);
+    await client.query('DELETE FROM notification_devices WHERE user_id=$1',[row.user_id]);
+  });
   await disconnectUserSockets(row.user_id);
   res.json({ success: true });
 }));

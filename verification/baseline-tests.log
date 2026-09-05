@@ -1,0 +1,850 @@
+TAP version 13
+# Subtest: explicit home-made meal with missing groceries creates groceries and prep requirements
+ok 1 - explicit home-made meal with missing groceries creates groceries and prep requirements
+  ---
+  duration_ms: 1.958668
+  type: 'test'
+  ...
+# Subtest: home-made meal with ingredients ready creates prep only
+ok 2 - home-made meal with ingredients ready creates prep only
+  ---
+  duration_ms: 0.282169
+  type: 'test'
+  ...
+# Subtest: restaurant/store meal does not create home-made support actions
+ok 3 - restaurant/store meal does not create home-made support actions
+  ---
+  duration_ms: 0.309109
+  type: 'test'
+  ...
+# Subtest: slot finder stays near preference while respecting occupied intervals
+ok 4 - slot finder stays near preference while respecting occupied intervals
+  ---
+  duration_ms: 0.400034
+  type: 'test'
+  ...
+# Subtest: support task identity is stable and carries explainable target metadata
+ok 5 - support task identity is stable and carries explainable target metadata
+  ---
+  duration_ms: 1.924587
+  type: 'test'
+  ...
+# Subtest: rolling-horizon helper measures future local target seconds
+ok 6 - rolling-horizon helper measures future local target seconds
+  ---
+  duration_ms: 0.260968
+  type: 'test'
+  ...
+# Subtest: adaptive freshness ignores system filler intervals
+ok 7 - adaptive freshness ignores system filler intervals
+  ---
+  duration_ms: 1.362072
+  type: 'test'
+  ...
+# Subtest: missed uncompleted activity triggers an adaptive reroute
+ok 8 - missed uncompleted activity triggers an adaptive reroute
+  ---
+  duration_ms: 1.712602
+  type: 'test'
+  ...
+# Subtest: completed or skipped activities do not create a stale-route trigger
+ok 9 - completed or skipped activities do not create a stale-route trigger
+  ---
+  duration_ms: 0.347486
+  type: 'test'
+  ...
+# Subtest: uncompleted activity near the end of its window is marked at risk
+ok 10 - uncompleted activity near the end of its window is marked at risk
+  ---
+  duration_ms: 0.224643
+  type: 'test'
+  ...
+# Subtest: degraded expected finish triggers once per material fingerprint
+ok 11 - degraded expected finish triggers once per material fingerprint
+  ---
+  duration_ms: 0.426022
+  type: 'test'
+  ...
+# Subtest: candidate rebuild drops elapsed activities and rebases the at-risk activity
+ok 12 - candidate rebuild drops elapsed activities and rebases the at-risk activity
+  ---
+  duration_ms: 9.867858
+  type: 'test'
+  ...
+# Subtest: password hashes use scrypt and verify without storing the clear password
+ok 13 - password hashes use scrypt and verify without storing the clear password
+  ---
+  duration_ms: 144.330646
+  type: 'test'
+  ...
+# Subtest: password policy rejects short passwords
+ok 14 - password policy rejects short passwords
+  ---
+  duration_ms: 0.570627
+  type: 'test'
+  ...
+# Subtest: email and username normalization/validation are deterministic
+ok 15 - email and username normalization/validation are deterministic
+  ---
+  duration_ms: 0.30977
+  type: 'test'
+  ...
+# Subtest: signup can use the account email as its username
+ok 16 - signup can use the account email as its username
+  ---
+  duration_ms: 0.260387
+  type: 'test'
+  ...
+# Subtest: opaque token hashes are stable and do not preserve the token
+ok 17 - opaque token hashes are stable and do not preserve the token
+  ---
+  duration_ms: 0.512201
+  type: 'test'
+  ...
+# Subtest: decodes Swift synthesized activity enum envelope
+ok 18 - decodes Swift synthesized activity enum envelope
+  ---
+  duration_ms: 1.026244
+  type: 'test'
+  ...
+# Subtest: clamps end-of-day Swift time to PostgreSQL projection range
+ok 19 - clamps end-of-day Swift time to PostgreSQL projection range
+  ---
+  duration_ms: 0.158535
+  type: 'test'
+  ...
+# Subtest: parses Activity wall-clock strings
+ok 20 - parses Activity wall-clock strings
+  ---
+  duration_ms: 0.396389
+  type: 'test'
+  ...
+# Subtest: server can enforce a durable activity status from the mutation action
+ok 21 - server can enforce a durable activity status from the mutation action
+  ---
+  duration_ms: 0.491139
+  type: 'test'
+  ...
+# Subtest: backend grid mirrors the current deterministic iOS grid dimensions
+ok 22 - backend grid mirrors the current deterministic iOS grid dimensions
+  ---
+  duration_ms: 2.101399
+  type: 'test'
+  ...
+# Subtest: standard weight-loss day produces deterministic Activity nodes in chronological order
+ok 23 - standard weight-loss day produces deterministic Activity nodes in chronological order
+  ---
+  duration_ms: 14.153831
+  type: 'test'
+  ...
+# Subtest: standard generated stops build a complete backend-authoritative route with alternatives
+ok 24 - standard generated stops build a complete backend-authoritative route with alternatives
+  ---
+  duration_ms: 112.271188
+  type: 'test'
+  ...
+# Subtest: generated routing anchors use the authoritative allocated progress coordinate
+ok 25 - generated routing anchors use the authoritative allocated progress coordinate
+  ---
+  duration_ms: 2.60028
+  type: 'test'
+  ...
+# Subtest: standard generation also produces a continuous 100-point Day Graph
+ok 26 - standard generation also produces a continuous 100-point Day Graph
+  ---
+  duration_ms: 2.14849
+  type: 'test'
+  ...
+# Subtest: generated anchors keep same-band personalized stops forward-routable without moving visible nodes
+ok 27 - generated anchors keep same-band personalized stops forward-routable without moving visible nodes
+  ---
+  duration_ms: 77.909304
+  type: 'test'
+  ...
+# Subtest: continuous day assigns exactly one interval to every second
+ok 28 - continuous day assigns exactly one interval to every second
+  ---
+  duration_ms: 5.579743
+  type: 'test'
+  ...
+# Subtest: interval splitting preserves coverage at an arbitrary second
+ok 29 - interval splitting preserves coverage at an arbitrary second
+  ---
+  duration_ms: 0.979173
+  type: 'test'
+  ...
+# Subtest: alternatives branch from chosen and rejoin without temporal gaps
+ok 30 - alternatives branch from chosen and rejoin without temporal gaps
+  ---
+  duration_ms: 3.050198
+  type: 'test'
+  ...
+# Subtest: overlapping primary intervals are rejected
+ok 31 - overlapping primary intervals are rejected
+  ---
+  duration_ms: 0.418712
+  type: 'test'
+  ...
+# Subtest: future-only freeze splits duration-based system activity value proportionally at the exact second
+ok 32 - future-only freeze splits duration-based system activity value proportionally at the exact second
+  ---
+  duration_ms: 2.3239
+  type: 'test'
+  ...
+# Subtest: day-start/day-end aliases drive the user sleep window and preserve internal hour numbering
+ok 33 - day-start/day-end aliases drive the user sleep window and preserve internal hour numbering
+  ---
+  duration_ms: 0.681893
+  type: 'test'
+  ...
+# Subtest: sleep fillers become numbered hourly tiles across midnight
+ok 34 - sleep fillers become numbered hourly tiles across midnight
+  ---
+  duration_ms: 1.303745
+  type: 'test'
+  ...
+# Subtest: awake gaps are visible fasting tiles and fasting hour count continues through activities
+ok 35 - awake gaps are visible fasting tiles and fasting hour count continues through activities
+  ---
+  duration_ms: 0.765817
+  type: 'test'
+  ...
+# Subtest: scheduled daytime sleep is classified as a separately numbered nap
+ok 36 - scheduled daytime sleep is classified as a separately numbered nap
+  ---
+  duration_ms: 1.56336
+  type: 'test'
+  ...
+# Subtest: hourly special tiles preserve aggregate planner weights
+ok 37 - hourly special tiles preserve aggregate planner weights
+  ---
+  duration_ms: 0.813618
+  type: 'test'
+  ...
+# Subtest: foreground fasting is segmented around a real activity while latent fasting state continues underneath it
+ok 38 - foreground fasting is segmented around a real activity while latent fasting state continues underneath it
+  ---
+  duration_ms: 0.725938
+  type: 'test'
+  ...
+# Subtest: sleep crossing the wake boundary becomes overnight sleep then a nap
+ok 39 - sleep crossing the wake boundary becomes overnight sleep then a nap
+  ---
+  duration_ms: 0.701872
+  type: 'test'
+  ...
+# Subtest: primary route always generates latent fasting state nodes underneath real activities
+ok 40 - primary route always generates latent fasting state nodes underneath real activities
+  ---
+  duration_ms: 1.01076
+  type: 'test'
+  ...
+# Subtest: primary route generates sleep and fasting together while sleep has the higher display priority
+ok 41 - primary route generates sleep and fasting together while sleep has the higher display priority
+  ---
+  duration_ms: 0.580122
+  type: 'test'
+  ...
+# Subtest: alternative branches contain derived system activities but never carry the overlapping state layer
+ok 42 - alternative branches contain derived system activities but never carry the overlapping state layer
+  ---
+  duration_ms: 1.781275
+  type: 'test'
+  ...
+# Subtest: primary system-state layer keeps overnight sleep and daytime nap classification across the wake boundary
+ok 43 - primary system-state layer keeps overnight sleep and daytime nap classification across the wake boundary
+  ---
+  duration_ms: 0.626801
+  type: 'test'
+  ...
+# Subtest: compiled Day Graph persists as one version, one chosen path, and all intervals
+ok 44 - compiled Day Graph persists as one version, one chosen path, and all intervals
+  ---
+  duration_ms: 14.402821
+  type: 'test'
+  ...
+# Subtest: rerouted graph persists completed history and chosen future as separate primary paths
+ok 45 - rerouted graph persists completed history and chosen future as separate primary paths
+  ---
+  duration_ms: 5.723336
+  type: 'test'
+  ...
+# Subtest: Aug 29 demo day spans midnight through late evening with representative stops
+ok 46 - Aug 29 demo day spans midnight through late evening with representative stops
+  ---
+  duration_ms: 0.896151
+  type: 'test'
+  ...
+# Subtest: Aug 29 demo route has nine completed, six future, and exactly two alternatives at 15:45:53
+ok 47 - Aug 29 demo route has nine completed, six future, and exactly two alternatives at 15:45:53
+  ---
+  duration_ms: 107.743552
+  type: 'test'
+  ...
+# Subtest: generated stop image URL is projected into marker and type-specific media
+ok 48 - generated stop image URL is projected into marker and type-specific media
+  ---
+  duration_ms: 1.022418
+  type: 'test'
+  ...
+# Subtest: demo CLI helpers accept named rules, clock times, and two alternatives
+ok 49 - demo CLI helpers accept named rules, clock times, and two alternatives
+  ---
+  duration_ms: 0.228799
+  type: 'test'
+  ...
+# Subtest: server exposes every supported outgoing event exactly once
+ok 50 - server exposes every supported outgoing event exactly once
+  ---
+  duration_ms: 1.137128
+  type: 'test'
+  ...
+# Subtest: server exposes every supported incoming event exactly once
+ok 51 - server exposes every supported incoming event exactly once
+  ---
+  duration_ms: 0.147219
+  type: 'test'
+  ...
+# Subtest: reroute service publishes one atomic child revision and carries the completed prefix
+ok 52 - reroute service publishes one atomic child revision and carries the completed prefix
+  ---
+  duration_ms: 18.994326
+  type: 'test'
+  ...
+# Subtest: learning context is data-minimized and omits free-form/user text
+ok 53 - learning context is data-minimized and omits free-form/user text
+  ---
+  duration_ms: 1.558613
+  type: 'test'
+  ...
+# Subtest: behavioral feature snapshot is point-in-time and contains useful aggregates
+ok 54 - behavioral feature snapshot is point-in-time and contains useful aggregates
+  ---
+  duration_ms: 0.91596
+  type: 'test'
+  ...
+# Subtest: optimizer exposes every candidate considered plus the route exposures
+ok 55 - optimizer exposes every candidate considered plus the route exposures
+  ---
+  duration_ms: 9.695553
+  type: 'test'
+  ...
+# Subtest: routing decision capture stores point-in-time context, all candidates, routes and feature snapshot
+ok 56 - routing decision capture stores point-in-time context, all candidates, routes and feature snapshot
+  ---
+  duration_ms: 1.54977
+  type: 'test'
+  ...
+# Subtest: progress outcome becomes append-only learning outcome linked to its decision candidate
+ok 57 - progress outcome becomes append-only learning outcome linked to its decision candidate
+  ---
+  duration_ms: 0.49151
+  type: 'test'
+  ...
+# Subtest: learning export user key is stable, secret-dependent and never the raw UUID
+ok 58 - learning export user key is stable, secret-dependent and never the raw UUID
+  ---
+  duration_ms: 0.465531
+  type: 'test'
+  ...
+# Subtest: post media fields are reconciled from authoritative image/video arrays
+ok 59 - post media fields are reconciled from authoritative image/video arrays
+  ---
+  duration_ms: 1.616941
+  type: 'test'
+  ...
+# Subtest: video-first posts keep a still-image marker instead of using the video URL as a texture
+ok 60 - video-first posts keep a still-image marker instead of using the video URL as a texture
+  ---
+  duration_ms: 0.182961
+  type: 'test'
+  ...
+# Subtest: activity task media is deduplicated and first image becomes its marker
+ok 61 - activity task media is deduplicated and first image becomes its marker
+  ---
+  duration_ms: 0.312714
+  type: 'test'
+  ...
+# Subtest: standalone image media synchronizes its marker with its remote content URL
+ok 62 - standalone image media synchronizes its marker with its remote content URL
+  ---
+  duration_ms: 0.234138
+  type: 'test'
+  ...
+# Subtest: activity end clock after start stays on the same day
+ok 63 - activity end clock after start stays on the same day
+  ---
+  duration_ms: 0.608073
+  type: 'test'
+  ...
+# Subtest: activity end clock equal to start stays on the same day
+ok 64 - activity end clock equal to start stays on the same day
+  ---
+  duration_ms: 0.099478
+  type: 'test'
+  ...
+# Subtest: activity end clock before start rolls into the next day
+ok 65 - activity end clock before start rolls into the next day
+  ---
+  duration_ms: 0.090704
+  type: 'test'
+  ...
+# Subtest: Phase 8 onboarding socket contract is stable
+ok 66 - Phase 8 onboarding socket contract is stable
+  ---
+  duration_ms: 0.672077
+  type: 'test'
+  ...
+# Subtest: personalized onboarding route compiles and exposes home-cooked support intent
+ok 67 - personalized onboarding route compiles and exposes home-cooked support intent
+  ---
+  duration_ms: 24.135478
+  type: 'test'
+  ...
+# Subtest: Phase 3 seeded flow refreshes state and future reroute preserves history + earned progress
+ok 68 - Phase 3 seeded flow refreshes state and future reroute preserves history + earned progress
+  ---
+  duration_ms: 19.934953
+  type: 'test'
+  ...
+# Subtest: population model uses chronological holdout and clears offline gates on learnable data
+ok 69 - population model uses chronological holdout and clears offline gates on learnable data
+  ---
+  duration_ms: 70.069686
+  type: 'test'
+  ...
+# Subtest: cohort and personalized residuals layer on the calibrated population prediction
+ok 70 - cohort and personalized residuals layer on the calibrated population prediction
+  ---
+  duration_ms: 0.2488
+  type: 'test'
+  ...
+# Subtest: cohort key is built only from decision-time candidate/time/behavior context
+ok 71 - cohort key is built only from decision-time candidate/time/behavior context
+  ---
+  duration_ms: 0.348528
+  type: 'test'
+  ...
+# Subtest: runtime shadow scoring records learned probabilities but keeps legacy routing probability
+ok 72 - runtime shadow scoring records learned probabilities but keeps legacy routing probability
+  ---
+  duration_ms: 55.068462
+  type: 'test'
+  ...
+# Subtest: runtime active scoring can supply personalized completion probability to router
+ok 73 - runtime active scoring can supply personalized completion probability to router
+  ---
+  duration_ms: 36.361568
+  type: 'test'
+  ...
+# Subtest: active learned completion probability changes only ranking, not routing constraints
+ok 74 - active learned completion probability changes only ranking, not routing constraints
+  ---
+  duration_ms: 8.021348
+  type: 'test'
+  ...
+# Subtest: active promotion rejects a model whose offline safety gates failed
+ok 75 - active promotion rejects a model whose offline safety gates failed
+  ---
+  duration_ms: 0.740209
+  type: 'test'
+  ...
+# Subtest: active promotion can require labeled shadow superiority over legacy
+ok 76 - active promotion can require labeled shadow superiority over legacy
+  ---
+  duration_ms: 0.266555
+  type: 'test'
+  ...
+# Subtest: prediction metrics report calibration/ranking quality
+ok 77 - prediction metrics report calibration/ranking quality
+  ---
+  duration_ms: 0.605028
+  type: 'test'
+  ...
+# Subtest: rollout steps are normalized and always terminate at 100 percent
+ok 78 - rollout steps are normalized and always terminate at 100 percent
+  ---
+  duration_ms: 1.733564
+  type: 'test'
+  ...
+# Subtest: prediction distribution PSI is zero for identical populations and rises on drift
+ok 79 - prediction distribution PSI is zero for identical populations and rises on drift
+  ---
+  duration_ms: 0.353174
+  type: 'test'
+  ...
+# Subtest: health gate stays insufficient until enough real labels arrive
+ok 80 - health gate stays insufficient until enough real labels arrive
+  ---
+  duration_ms: 1.824138
+  type: 'test'
+  ...
+# Subtest: healthy shadow predictions can clear learned-vs-legacy and drift gates
+ok 81 - healthy shadow predictions can clear learned-vs-legacy and drift gates
+  ---
+  duration_ms: 4.340543
+  type: 'test'
+  ...
+# Subtest: health gate detects model regression or material distribution drift
+ok 82 - health gate detects model regression or material distribution drift
+  ---
+  duration_ms: 1.382903
+  type: 'test'
+  ...
+# Subtest: training artifact stores monitoring reference for future drift checks
+ok 83 - training artifact stores monitoring reference for future drift checks
+  ---
+  duration_ms: 28.693274
+  type: 'test'
+  ...
+# Subtest: canary users outside challenger rollout keep the previous active champion
+ok 84 - canary users outside challenger rollout keep the previous active champion
+  ---
+  duration_ms: 27.459072
+  type: 'test'
+  ...
+# Subtest: active champion can score a new shadow challenger without changing applied probability
+ok 85 - active champion can score a new shadow challenger without changing applied probability
+  ---
+  duration_ms: 22.208869
+  type: 'test'
+  ...
+# Subtest: challenger health compares against champion probability when available, not only legacy
+ok 86 - challenger health compares against champion probability when available, not only legacy
+  ---
+  duration_ms: 0.818515
+  type: 'test'
+  ...
+# Subtest: a rollout stage cannot accumulate healthy checks without fresh labeled evidence
+ok 87 - a rollout stage cannot accumulate healthy checks without fresh labeled evidence
+  ---
+  duration_ms: 0.37702
+  type: 'test'
+  ...
+# Subtest: play workout catalog maps active PostgreSQL definitions into Swift-decodable Workout templates
+ok 88 - play workout catalog maps active PostgreSQL definitions into Swift-decodable Workout templates
+  ---
+  duration_ms: 2.423277
+  type: 'test'
+  ...
+# Subtest: persisted standalone Play session retains source workout definition separately from the fresh session ID
+ok 89 - persisted standalone Play session retains source workout definition separately from the fresh session ID
+  ---
+  duration_ms: 0.534193
+  type: 'test'
+  ...
+# Subtest: targeted play restore selects the exact ActivityWorkout session and source workout
+ok 90 - targeted play restore selects the exact ActivityWorkout session and source workout
+  ---
+  duration_ms: 2.033098
+  type: 'test'
+  ...
+# Subtest: generic play restore remains backward compatible and selects the latest session
+ok 91 - generic play restore remains backward compatible and selects the latest session
+  ---
+  duration_ms: 0.24245
+  type: 'test'
+  ...
+# Subtest: development dummy auth remains available for local physical-device testing
+ok 92 - development dummy auth remains available for local physical-device testing
+  ---
+  duration_ms: 1.790047
+  type: 'test'
+  ...
+# Subtest: production refuses development authentication
+ok 93 - production refuses development authentication
+  ---
+  duration_ms: 0.38339
+  type: 'test'
+  ...
+# Subtest: production internal auth accepts the hardened Azure configuration
+ok 94 - production internal auth accepts the hardened Azure configuration
+  ---
+  duration_ms: 0.264142
+  type: 'test'
+  ...
+# Subtest: production requires PostgreSQL TLS certificate verification
+ok 95 - production requires PostgreSQL TLS certificate verification
+  ---
+  duration_ms: 0.137984
+  type: 'test'
+  ...
+# Subtest: production requires HTTPS public and reset URLs
+ok 96 - production requires HTTPS public and reset URLs
+  ---
+  duration_ms: 0.171255
+  type: 'test'
+  ...
+# Subtest: production never exposes reset tokens or wildcard CORS
+ok 97 - production never exposes reset tokens or wildcard CORS
+  ---
+  duration_ms: 0.176361
+  type: 'test'
+  ...
+# Subtest: Azure email requires sender plus endpoint or Key Vault supplied connection string
+ok 98 - Azure email requires sender plus endpoint or Key Vault supplied connection string
+  ---
+  duration_ms: 0.173217
+  type: 'test'
+  ...
+# Subtest: production requires observability, rate limiting and daily scheduler
+ok 99 - production requires observability, rate limiting and daily scheduler
+  ---
+  duration_ms: 0.237252
+  type: 'test'
+  ...
+# Subtest: production external auth requires verifier URL
+ok 100 - production external auth requires verifier URL
+  ---
+  duration_ms: 0.328839
+  type: 'test'
+  ...
+# Subtest: daily budget is exactly 100 and fasting rewards are capped
+ok 101 - daily budget is exactly 100 and fasting rewards are capped
+  ---
+  duration_ms: 5.663567
+  type: 'test'
+  ...
+# Subtest: completion evaluators support partial workouts and composite meals
+ok 102 - completion evaluators support partial workouts and composite meals
+  ---
+  duration_ms: 1.244117
+  type: 'test'
+  ...
+# Subtest: skipped work remains in the denominator while superseded work creates no penalty
+ok 103 - skipped work remains in the denominator while superseded work creates no penalty
+  ---
+  duration_ms: 2.608653
+  type: 'test'
+  ...
+# Subtest: a rerouted suffix receives exactly the remaining progress budget
+ok 104 - a rerouted suffix receives exactly the remaining progress budget
+  ---
+  duration_ms: 0.968127
+  type: 'test'
+  ...
+# Subtest: token-window limiter blocks after the configured count
+ok 105 - token-window limiter blocks after the configured count
+  ---
+  duration_ms: 1.398536
+  type: 'test'
+  ...
+# Subtest: token-window limiter isolates subjects
+ok 106 - token-window limiter isolates subjects
+  ---
+  duration_ms: 0.25626
+  type: 'test'
+  ...
+# Subtest: backend builds chosen and alternative path geometry
+ok 107 - backend builds chosen and alternative path geometry
+  ---
+  duration_ms: 3.175954
+  type: 'test'
+  ...
+# Subtest: backend swaps only a selected server-generated alternative
+ok 108 - backend swaps only a selected server-generated alternative
+  ---
+  duration_ms: 0.597587
+  type: 'test'
+  ...
+# Subtest: backend rebuilds existing path when a new future node is attached
+ok 109 - backend rebuilds existing path when a new future node is attached
+  ---
+  duration_ms: 1.423523
+  type: 'test'
+  ...
+# Subtest: explicit attached anchor is merged even when the general anchor list is stale
+ok 110 - explicit attached anchor is merged even when the general anchor list is stale
+  ---
+  duration_ms: 0.67364
+  type: 'test'
+  ...
+# Subtest: backend re-anchors an attached stop when the client nearest-road anchor is unreachable
+ok 111 - backend re-anchors an attached stop when the client nearest-road anchor is unreachable
+  ---
+  duration_ms: 8.126383
+  type: 'test'
+  ...
+# Subtest: route knowledge catalog contains all three gamified encounter styles
+ok 112 - route knowledge catalog contains all three gamified encounter styles
+  ---
+  duration_ms: 1.11119
+  type: 'test'
+  ...
+# Subtest: new players are asked about work structure before lower-value gaps
+ok 113 - new players are asked about work structure before lower-value gaps
+  ---
+  duration_ms: 0.206757
+  type: 'test'
+  ...
+# Subtest: known route knowledge is removed from the question queue
+ok 114 - known route knowledge is removed from the question queue
+  ---
+  duration_ms: 0.21581
+  type: 'test'
+  ...
+# Subtest: encounter cadence decays as Fifoo learns the player
+ok 115 - encounter cadence decays as Fifoo learns the player
+  ---
+  duration_ms: 0.104154
+  type: 'test'
+  ...
+# Subtest: third-shift sleep window can be represented as protected daytime sleep
+ok 116 - third-shift sleep window can be represented as protected daytime sleep
+  ---
+  duration_ms: 3.560756
+  type: 'test'
+  ...
+# Subtest: route service re-anchors an unreachable client anchor and persists the attached stop
+ok 117 - route service re-anchors an unreachable client anchor and persists the attached stop
+  ---
+  duration_ms: 12.640004
+  type: 'test'
+  ...
+# Subtest: route attachment still preserves the node transaction when no road insertion is possible
+ok 118 - route attachment still preserves the node transaction when no road insertion is possible
+  ---
+  duration_ms: 0.684557
+  type: 'test'
+  ...
+# Subtest: cold-start probability shifts from population to cohort to individual with evidence
+ok 119 - cold-start probability shifts from population to cohort to individual with evidence
+  ---
+  duration_ms: 0.819557
+  type: 'test'
+  ...
+# Subtest: beam search returns connected, diverse whole-day routes around hard constraints
+ok 120 - beam search returns connected, diverse whole-day routes around hard constraints
+  ---
+  duration_ms: 8.296456
+  type: 'test'
+  ...
+# Subtest: future rerouting preserves history and optimizes only the remaining day
+ok 121 - future rerouting preserves history and optimizes only the remaining day
+  ---
+  duration_ms: 3.814242
+  type: 'test'
+  ...
+# Subtest: future rerouting rejects a fixed candidate in elapsed time
+ok 122 - future rerouting rejects a fixed candidate in elapsed time
+  ---
+  duration_ms: 1.096587
+  type: 'test'
+  ...
+# Subtest: meal alternatives carry derived fasting activities while the selected meal determines the fasting state
+ok 123 - meal alternatives carry derived fasting activities while the selected meal determines the fasting state
+  ---
+  duration_ms: 2.496867
+  type: 'test'
+  ...
+# Subtest: future-only rerouting splits primary system-state nodes at the immutable decision boundary
+ok 124 - future-only rerouting splits primary system-state nodes at the immutable decision boundary
+  ---
+  duration_ms: 2.824553
+  type: 'test'
+  ...
+# Subtest: friend list maps relational user/day-map state into progress cards
+ok 125 - friend list maps relational user/day-map state into progress cards
+  ---
+  duration_ms: 1.781975
+  type: 'test'
+  ...
+# Subtest: direct conversation reuses an existing two-person thread
+ok 126 - direct conversation reuses an existing two-person thread
+  ---
+  duration_ms: 0.314808
+  type: 'test'
+  ...
+# Subtest: conversation message persists body and returns participant broadcast IDs
+ok 127 - conversation message persists body and returns participant broadcast IDs
+  ---
+  duration_ms: 1.072271
+  type: 'test'
+  ...
+# Subtest: posts feed exposes common social counts and saved state
+ok 128 - posts feed exposes common social counts and saved state
+  ---
+  duration_ms: 0.422407
+  type: 'test'
+  ...
+# Subtest: snapshot hydration restores persisted reply text and save state
+ok 129 - snapshot hydration restores persisted reply text and save state
+  ---
+  duration_ms: 1.350134
+  type: 'test'
+  ...
+# Subtest: snapshot hydration restores the current user hyperlink vote
+ok 130 - snapshot hydration restores the current user hyperlink vote
+  ---
+  duration_ms: 0.22888
+  type: 'test'
+  ...
+# Subtest: snapshot hydration reconciles visible reply count from persisted rows
+ok 131 - snapshot hydration reconciles visible reply count from persisted rows
+  ---
+  duration_ms: 0.243702
+  type: 'test'
+  ...
+# Subtest: foreground sleep and fasting intervals are actionable system activity nodes
+ok 132 - foreground sleep and fasting intervals are actionable system activity nodes
+  ---
+  duration_ms: 4.462975
+  type: 'test'
+  ...
+# Subtest: I Am Awake clips the current derived sleep window even when context only has wake/bed times
+ok 133 - I Am Awake clips the current derived sleep window even when context only has wake/bed times
+  ---
+  duration_ms: 0.251473
+  type: 'test'
+  ...
+# Subtest: Break Fast inserts a required eating-window fact at the reroute boundary
+ok 134 - Break Fast inserts a required eating-window fact at the reroute boundary
+  ---
+  duration_ms: 0.25591
+  type: 'test'
+  ...
+# Subtest: live system activity progress changes dayProgress without mutating ledger earnedPoints
+ok 135 - live system activity progress changes dayProgress without mutating ledger earnedPoints
+  ---
+  duration_ms: 2.573601
+  type: 'test'
+  ...
+# Subtest: UUID validation accepts Swift rawValue wrappers
+ok 136 - UUID validation accepts Swift rawValue wrappers
+  ---
+  duration_ms: 0.764695
+  type: 'test'
+  ...
+# Subtest: request envelope normalizes Pass 5.37 context
+ok 137 - request envelope normalizes Pass 5.37 context
+  ---
+  duration_ms: 17.536933
+  type: 'test'
+  ...
+# Subtest: request envelope rejects impossible map dates and invalid time zones
+ok 138 - request envelope rejects impossible map dates and invalid time zones
+  ---
+  duration_ms: 0.48501
+  type: 'test'
+  ...
+# Subtest: optimistic concurrency accepts only the authoritative revision
+ok 139 - optimistic concurrency accepts only the authoritative revision
+  ---
+  duration_ms: 0.332494
+  type: 'test'
+  ...
+# Subtest: mutation payload byte limit rejects oversized JSON
+ok 140 - mutation payload byte limit rejects oversized JSON
+  ---
+  duration_ms: 0.314687
+  type: 'test'
+  ...
+1..140
+# tests 140
+# suites 0
+# pass 140
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1006.901367

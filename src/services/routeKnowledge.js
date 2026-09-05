@@ -14,7 +14,7 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
     key: 'work_structure', version: 1, knowledgeKey: 'work_structure', style: 'road_encounter',
     category: 'schedule', priority: 100, rewardXP: 10, selectionMode: 'single', maxSelections: 1,
     accent: 'royalPurple', icon: 'map.fill',
-    title: 'LEARN YOUR TERRITORY', prompt: 'What does your usual workday look like?',
+    title: 'SET WORK HOURS', prompt: 'What does your usual workday look like?',
     helperText: 'I’ll protect the hours that belong to work and plan the rest of your march around them.',
     routeImpact: 'work_schedule',
     options: [
@@ -31,7 +31,7 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
     key: 'sleep_pattern', version: 1, knowledgeKey: 'sleep_pattern', style: 'road_encounter',
     category: 'recovery', priority: 96, rewardXP: 10, selectionMode: 'single', maxSelections: 1,
     accent: 'midnight', icon: 'moon.zzz.fill',
-    title: 'CLAIM YOUR REST CAMP', prompt: 'Which sleep road is closest to your normal routine?',
+    title: 'SET SLEEP TIMES', prompt: 'Which sleep schedule is closest to your normal routine?',
     helperText: 'Sleep becomes protected territory. I’ll place workouts, meals and prep around it.',
     routeImpact: 'sleep_schedule',
     options: [
@@ -46,7 +46,7 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
     key: 'food_allergies', version: 1, knowledgeKey: 'food_allergies', style: 'scout_report',
     category: 'nutrition_safety', priority: 110, rewardXP: 10, selectionMode: 'multiple', maxSelections: 8,
     accent: 'warning', icon: 'shield.lefthalf.filled',
-    title: 'SCOUT REPORT · FOOD SAFETY', prompt: 'Any food allergies Fifoo should treat as hard constraints?',
+    title: 'FOOD CONSTRAINTS', prompt: 'Any food allergies Fifoo should treat as hard constraints?',
     helperText: 'Choose every allergy that applies. I will never infer this from your behavior.',
     safetyNote: 'This is self-reported routing information, not medical advice. Always verify ingredients and food preparation yourself.',
     routeImpact: 'safety_constraint',
@@ -68,7 +68,7 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
     key: 'diet_style', version: 1, knowledgeKey: 'diet_style', style: 'road_encounter',
     category: 'nutrition', priority: 88, rewardXP: 8, selectionMode: 'single', maxSelections: 1,
     accent: 'green', icon: 'leaf.fill',
-    title: 'CHOOSE YOUR FOOD ROAD', prompt: 'Which eating style best describes you?',
+    title: 'SET MEAL PREFERENCES', prompt: 'Which eating style best describes you?',
     helperText: 'This helps rank meal candidates. You can change it whenever your routine changes.',
     routeImpact: 'meal_filter',
     options: [
@@ -103,7 +103,7 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
   {
     key: 'cooking_frequency', version: 1, knowledgeKey: 'cooking_frequency', style: 'scout_report',
     category: 'nutrition', priority: 72, rewardXP: 7, selectionMode: 'single', maxSelections: 1,
-    accent: 'amber', icon: 'frying.pan.fill', title: 'SCOUT REPORT · HOME BASE', prompt: 'How often do you realistically cook at home?',
+    accent: 'amber', icon: 'frying.pan.fill', title: 'PREPARATION DETAILS', prompt: 'How often do you realistically cook at home?',
     helperText: 'I can schedule groceries and prep only when they actually have a chance to happen.', routeImpact: 'support_planning',
     options: [
       option('most_days', 'Most days', 'Home cooking is normal for me', 'house.fill', { frequency: 'most_days' }),
@@ -114,7 +114,7 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
   {
     key: 'commute_pattern', version: 1, knowledgeKey: 'commute_pattern', style: 'scout_report',
     category: 'logistics', priority: 68, rewardXP: 7, selectionMode: 'single', maxSelections: 1,
-    accent: 'teal', icon: 'location.fill', title: 'SCOUT REPORT · TRAVEL', prompt: 'How much time does a normal one-way commute take?',
+    accent: 'teal', icon: 'location.fill', title: 'TRAVEL DETAILS', prompt: 'How much time does a normal one-way commute take?',
     helperText: 'Travel time can become protected route space instead of invisible schedule friction.', routeImpact: 'travel_buffer',
     options: [
       option('remote', 'No commute / remote', null, 'house.laptop.fill', { minutes: 0 }),
@@ -138,7 +138,7 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
   {
     key: 'meal_pattern', version: 1, knowledgeKey: 'meal_pattern', style: 'scout_report',
     category: 'nutrition', priority: 58, rewardXP: 6, selectionMode: 'single', maxSelections: 1,
-    accent: 'green', icon: 'fork.knife.circle.fill', title: 'SCOUT REPORT · FUEL', prompt: 'What meal rhythm is closest to real life?',
+    accent: 'green', icon: 'fork.knife.circle.fill', title: 'MEAL DETAILS', prompt: 'What meal rhythm is closest to real life?',
     helperText: 'This improves fasting tiles and meal-window planning.', routeImpact: 'meal_timing',
     options: [
       option('two', 'Usually 2 meals', null, '2.circle.fill', { mealsPerDay: 2 }),
@@ -150,7 +150,7 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
   {
     key: 'weekend_structure', version: 1, knowledgeKey: 'weekend_structure', style: 'quick_duel',
     category: 'schedule', priority: 50, rewardXP: 5, selectionMode: 'single', maxSelections: 1,
-    accent: 'purple', icon: 'calendar', title: 'QUICK DUEL', prompt: 'Are weekends a different world?',
+    accent: 'purple', icon: 'calendar', title: 'QUICK DUEL', prompt: 'Does your schedule change on weekends?',
     helperText: 'I can learn separate weekday and weekend route patterns.', routeImpact: 'routing_preference',
     options: [
       option('similar', 'Pretty similar', null, 'equal.circle.fill', { key: 'similar' }),
@@ -539,6 +539,7 @@ async function rerouteForKnowledge(client, {
     revision,
     dayPlanState: {
       dayPlan: result.dayPlan,
+          mapDate,
       progressSnapshot: result.progressSnapshot,
       planRevision: result.planRevision,
       revision,
@@ -551,13 +552,13 @@ async function rerouteForKnowledge(client, {
 
 function feedbackFor(question, selectedOptions, routeUpdated) {
   const label = selectedOptions.map((item) => item.title).join(', ');
-  if (question.key === 'work_structure') return ['TERRITORY MAPPED', routeUpdated ? 'Work hours are now protected and the future route has been redrawn.' : `Work pattern saved: ${label}.`];
-  if (question.key === 'sleep_pattern') return ['REST CAMP CLAIMED', routeUpdated ? 'Sleep is protected territory and today’s future route has been rebuilt around it.' : `Sleep pattern saved: ${label}.`];
-  if (question.key === 'food_allergies') return ['SAFETY INTEL LOCKED', 'Food-allergy constraints are now part of meal-route filtering.'];
-  if (question.key === 'diet_style') return ['FOOD ROAD UNLOCKED', 'Future meal candidates can now be ranked against your eating style.'];
-  if (question.key === 'gym_access') return ['TRAINING TERRAIN KNOWN', 'Workout routes can now avoid equipment you do not reliably have.'];
-  if (question.routeImpact === 'support_planning') return ['SCOUT INTEL SAVED', 'Prep and grocery planning now has better context.'];
-  return ['ROUTE KNOWLEDGE +1', `${label} is now part of your routing profile.`];
+  if (question.key === 'work_structure') return ['WORK SCHEDULE SAVED', routeUpdated ? 'Review your next stops. Work hours are now protected.' : `Work pattern saved: ${label}.`];
+  if (question.key === 'sleep_pattern') return ['SLEEP SCHEDULE SAVED', routeUpdated ? 'Review the updated sleep and activity times.' : `Sleep pattern saved: ${label}.`];
+  if (question.key === 'food_allergies') return ['FOOD CONSTRAINTS SAVED', 'Review ingredients and preparation before selecting a meal.'];
+  if (question.key === 'diet_style') return ['MEAL PREFERENCES SAVED', 'Open a meal stop to review available options.'];
+  if (question.key === 'gym_access') return ['WORKOUT OPTIONS UPDATED', 'Open your workout to review equipment and timing.'];
+  if (question.routeImpact === 'support_planning') return ['PREPARATION DETAILS SAVED', 'Review your upcoming preparation and shopping steps.'];
+  return ['SCHEDULE DETAILS SAVED', `${label}. Open your schedule to review the next stops.`];
 }
 
 export async function answerRouteKnowledgeEncounter(client, {

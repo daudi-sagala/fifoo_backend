@@ -1,0 +1,284 @@
+
+> fifoo-game-backend@0.15.0 test:notifications
+> node --test test/notification*.test.js
+
+TAP version 13
+# Subtest: provider signs an ES256 JWT with real native crypto
+ok 1 - provider signs an ES256 JWT with real native crypto
+  ---
+  duration_ms: 3.033764
+  type: 'test'
+  ...
+# Subtest: private payload excludes activity details and contains no progress reward
+ok 2 - private payload excludes activity details and contains no progress reward
+  ---
+  duration_ms: 0.204784
+  type: 'test'
+  ...
+# Subtest: disclosed activity details are explicit preference and sound uses standard alert
+ok 3 - disclosed activity details are explicit preference and sound uses standard alert
+  ---
+  duration_ms: 0.102492
+  type: 'test'
+  ...
+# Subtest: disabled provider never opens a network connection
+ok 4 - disabled provider never opens a network connection
+  ---
+  duration_ms: 0.225886
+  type: 'test'
+  ...
+# Subtest: provider rejects a topic mismatch before connecting
+ok 5 - provider rejects a topic mismatch before connecting
+  ---
+  duration_ms: 0.127249
+  type: 'test'
+  ...
+# Subtest: HTTP/2 transport constructs the expected sandbox headers and payload
+ok 6 - HTTP/2 transport constructs the expected sandbox headers and payload
+  ---
+  duration_ms: 1.194443
+  type: 'test'
+  ...
+# Subtest: transport timeout is recoverable and closes the session
+ok 7 - transport timeout is recoverable and closes the session
+  ---
+  duration_ms: 11.59404
+  type: 'test'
+  ...
+# Subtest: multiline APNs key environment value normalizes safely
+ok 8 - multiline APNs key environment value normalizes safely
+  ---
+  duration_ms: 0.205705
+  type: 'test'
+  ...
+# Subtest: scheduler creates reminders for decision activities, not hourly Sleep/Fasting or alternate consequences
+ok 9 - scheduler creates reminders for decision activities, not hourly Sleep/Fasting or alternate consequences
+  ---
+  duration_ms: 1.058611
+  type: 'test'
+  ...
+# Subtest: preparation has an actionable title and 15-minute lead time
+ok 10 - preparation has an actionable title and 15-minute lead time
+  ---
+  duration_ms: 0.37099
+  type: 'test'
+  ...
+# Subtest: reminder semantic key survives a plan revision
+ok 11 - reminder semantic key survives a plan revision
+  ---
+  duration_ms: 0.194028
+  type: 'test'
+  ...
+# Subtest: policy defaults to push opt-out
+ok 12 - policy defaults to push opt-out
+  ---
+  duration_ms: 0.096844
+  type: 'test'
+  ...
+# Subtest: valid opted-in event is sent
+ok 13 - valid opted-in event is sent
+  ---
+  duration_ms: 0.366163
+  type: 'test'
+  ...
+# Subtest: no push when preferences are off
+ok 14 - no push when preferences are off
+  ---
+  duration_ms: 0.117745
+  type: 'test'
+  ...
+# Subtest: quiet interval crosses midnight correctly
+ok 15 - quiet interval crosses midnight correctly
+  ---
+  duration_ms: 0.139467
+  type: 'test'
+  ...
+# Subtest: custom quiet period suppresses delivery
+ok 16 - custom quiet period suppresses delivery
+  ---
+  duration_ms: 0.102703
+  type: 'test'
+  ...
+# Subtest: daytime sleep and naps suppress delivery
+ok 17 - daytime sleep and naps suppress delivery
+  ---
+  duration_ms: 0.309049
+  type: 'test'
+  ...
+# Subtest: fasting does not make a user busy or silence normal reminders
+ok 18 - fasting does not make a user busy or silence normal reminders
+  ---
+  duration_ms: 0.33038
+  type: 'test'
+  ...
+# Subtest: foreground activity uses inbox, not duplicate push
+ok 19 - foreground activity uses inbox, not duplicate push
+  ---
+  duration_ms: 0.143012
+  type: 'test'
+  ...
+# Subtest: budget counts automatic notifications
+ok 20 - budget counts automatic notifications
+  ---
+  duration_ms: 0.098316
+  type: 'test'
+  ...
+# Subtest: minimum spacing is enforced
+ok 21 - minimum spacing is enforced
+  ---
+  duration_ms: 0.096293
+  type: 'test'
+  ...
+# Subtest: explicit reminder bypasses automatic budget but not sleep
+ok 22 - explicit reminder bypasses automatic budget but not sleep
+  ---
+  duration_ms: 0.168309
+  type: 'test'
+  ...
+# Subtest: expired messages are not sent
+ok 23 - expired messages are not sent
+  ---
+  duration_ms: 0.111486
+  type: 'test'
+  ...
+# Subtest: route changes are inbox-only
+ok 24 - route changes are inbox-only
+  ---
+  duration_ms: 0.06692
+  type: 'test'
+  ...
+# Subtest: disabled categories are enforced separately
+ok 25 - disabled categories are enforced separately
+  ---
+  duration_ms: 0.063023
+  type: 'test'
+  ...
+# Subtest: a superseded plan cannot validate a notification
+ok 26 - a superseded plan cannot validate a notification
+  ---
+  duration_ms: 0.151856
+  type: 'test'
+  ...
+# Subtest: moved or completed activities invalidate their old reminder
+ok 27 - moved or completed activities invalidate their old reminder
+  ---
+  duration_ms: 0.098867
+  type: 'test'
+  ...
+# Subtest: unknown and unsafe preference fields never reach SQL
+ok 28 - unknown and unsafe preference fields never reach SQL
+  ---
+  duration_ms: 0.822491
+  type: 'test'
+  ...
+# Subtest: timezone mapping handles DST and third-shift dates
+ok 29 - timezone mapping handles DST and third-shift dates
+  ---
+  duration_ms: 12.917946
+  type: 'test'
+  ...
+# Subtest: APNs failures have bounded retry/permanent/token classifications
+ok 30 - APNs failures have bounded retry/permanent/token classifications
+  ---
+  duration_ms: 0.167739
+  type: 'test'
+  ...
+# Subtest: an actually active workout suppresses routine pushes, but a planned workout does not
+ok 31 - an actually active workout suppresses routine pushes, but a planned workout does not
+  ---
+  duration_ms: 0.124584
+  type: 'test'
+  ...
+# Subtest: partial recorded activity outcomes invalidate upcoming reminders
+ok 32 - partial recorded activity outcomes invalidate upcoming reminders
+  ---
+  duration_ms: 0.081141
+  type: 'test'
+  ...
+# Subtest: Go To Sleep is an explicit schedule decision with a bounded sleep window
+ok 33 - Go To Sleep is an explicit schedule decision with a bounded sleep window
+  ---
+  duration_ms: 1.143838
+  type: 'test'
+  ...
+# Subtest: Go To Sleep removes conflicting future candidates, not past history
+ok 34 - Go To Sleep removes conflicting future candidates, not past history
+  ---
+  duration_ms: 0.282429
+  type: 'test'
+  ...
+# Subtest: coverage-only sleep does not become a selectable decision candidate
+ok 35 - coverage-only sleep does not become a selectable decision candidate
+  ---
+  duration_ms: 4.850049
+  type: 'test'
+  ...
+# Subtest: waking removes only the explicit sleep busy restriction
+ok 36 - waking removes only the explicit sleep busy restriction
+  ---
+  duration_ms: 0.193627
+  type: 'test'
+  ...
+# Subtest: preference update uses only whitelisted bound keys and authenticated user
+ok 37 - preference update uses only whitelisted bound keys and authenticated user
+  ---
+  duration_ms: 1.062177
+  type: 'test'
+  ...
+# Subtest: device registration binds installation to authenticated identity, not payload user
+ok 38 - device registration binds installation to authenticated identity, not payload user
+  ---
+  duration_ms: 0.767439
+  type: 'test'
+  ...
+# Subtest: malformed token and unconfigured topic are rejected
+ok 39 - malformed token and unconfigured topic are rejected
+  ---
+  duration_ms: 0.452371
+  type: 'test'
+  ...
+# Subtest: inbox action cannot read another account notification
+ok 40 - inbox action cannot read another account notification
+  ---
+  duration_ms: 0.523687
+  type: 'test'
+  ...
+# Subtest: snooze preserves schedule and expiry and is idempotent by request ID
+ok 41 - snooze preserves schedule and expiry and is idempotent by request ID
+  ---
+  duration_ms: 15.785422
+  type: 'test'
+  ...
+# Subtest: stale push action returns current schedule instead of an obsolete activity
+ok 42 - stale push action returns current schedule instead of an obsolete activity
+  ---
+  duration_ms: 1.041156
+  type: 'test'
+  ...
+# Subtest: planner reschedules queued intents with timezone-aware SQL in the caller transaction
+ok 43 - planner reschedules queued intents with timezone-aware SQL in the caller transaction
+  ---
+  duration_ms: 0.587592
+  type: 'test'
+  ...
+# Subtest: superseded notification is cancelled before invoking APNs
+ok 44 - superseded notification is cancelled before invoking APNs
+  ---
+  duration_ms: 0.362579
+  type: 'test'
+  ...
+# Subtest: accepted delivery is recorded separately from notification read status
+ok 45 - accepted delivery is recorded separately from notification read status
+  ---
+  duration_ms: 0.793498
+  type: 'test'
+  ...
+1..45
+# tests 45
+# suites 0
+# pass 45
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 157.461847
