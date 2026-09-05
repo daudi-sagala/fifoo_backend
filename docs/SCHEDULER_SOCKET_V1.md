@@ -12,8 +12,9 @@ All requests use the Socket.IO acknowledgement callback and are limited to 8 KiB
 | `game:scheduler:presence` | `{active:true|false}` | `{success:true}` |
 | `game:scheduler:unregister` | `{}` | `{success:true}` |
 | `game:scheduler:action` | `{id,action:"open"|"read"|"snooze",requestID?}` | `{success:true,current,sourceNodeID,mapDate,message}` |
+| `game:scheduler:reminder` | `{mapDate,intervalID,minutesBefore,requestID}` | `{success:true,current,sourceNodeID,mapDate,message}` |
 
-Snooze requires a UUID `requestID`, has a fixed ten-minute delay and never edits the schedule. Duplicate request IDs are idempotent. Open/read/snooze are user-scoped. A stale activity opens today's current schedule and returns a null sourceNodeID. No route mutation is performed from these endpoints.
+Snooze requires a UUID `requestID`, has a fixed ten-minute delay and never edits the schedule. `game:scheduler:reminder` creates a user-requested reminder for an interval that is still on the active chosen plan; `minutesBefore` is 0–1440 and the resulting reminder must still be in the future. Both reminder APIs are idempotent by request ID and never edit route timing. Open/read/snooze/reminder are user-scoped. A stale activity opens today's current schedule and returns a null sourceNodeID. No route mutation is performed from these endpoints.
 
 Preferences: `push_enabled`, `activity_reminders`, `preparation_reminders`, `discreet`, `sound_enabled`, `daily_limit` (0–8), `min_spacing_minutes` (15–720), `quiet_start_minute`/`quiet_end_minute` (0–1439 or both null). These are authenticated settings, not schedule advice.
 

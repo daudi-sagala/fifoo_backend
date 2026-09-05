@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_PREFERENCES, localClock, plannedReminders, sanitizePreferences, stillRelevant } from './policy.js';
+import { DEFAULT_PREFERENCES, activityKey, localClock, plannedReminders, sanitizePreferences, stillRelevant } from './policy.js';
 import { GameError } from '../lib/errors.js';
 export async function preferencesFor(client,userID) {
  const r=await client.query('SELECT * FROM notification_preferences WHERE user_id=$1',[userID]);
@@ -76,6 +76,45 @@ export async function listInbox(client,userID) {
  WHERE n.user_id=$1 AND n.published_at IS NOT NULL ORDER BY n.published_at DESC LIMIT 60`,[userID]);
  return {preferences:p,items:r.rows};
 }
+
+export async function createExplicitReminder(client,userID,payload,now=new Date()) {
+ const mapDate=String(payload.mapDate??'');
+ const intervalID=String(payload.intervalID??'');
+ const requestID=String(payload.requestID??'');
+ const minutesBefore=Number(payload.minutesBefore);
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(mapDate))throw new GameError('invalid_payload','A schedule date is required.');
+ if(!/^[0-9a-f-]{36}$/i.test(intervalID))throw new GameError('invalid_payload','A valid route interval is required.');
+ if(!/^[0-9a-f-]{36}$/i.test(requestID))throw new GameError('invalid_payload','A reminder request ID is required.');
+ if(!Number.isInteger(minutesBefore)||minutesBefore<0||minutesBefore>1440)throw new GameError('invalid_payload','Reminder timing is invalid.');
+ const plan=(await client.query(`SELECT p.*,dm.timezone,dm.map_date::text AS local_map_date
+  FROM day_plan_versions p JOIN day_maps dm USING(day_map_id)
+  WHERE p.user_id=$1 AND dm.map_date=$2::date AND p.plan_status='active'
+  ORDER BY p.plan_revision DESC LIMIT 1`,[userID,mapDate])).rows[0];
+ if(!plan)throw new GameError('not_found','This schedule is no longer available.');
+ const interval=(plan.graph_data?.chosenPath?.intervals??[]).find(i=>String(i.intervalID)===intervalID);
+ if(!interval)throw new GameError('conflict','This stop is no longer on the chosen schedule.');
+ const status=(await intervalStatuses(client,plan.plan_id)).get(intervalID) ?? interval.lifecycleStatus;
+ if(['completed','partiallyCompleted','skipped','superseded','cancelledByConstraint','cancelled'].includes(status))
+  throw new GameError('conflict','This stop is already finished or no longer scheduled.');
+ const clock=localClock(plan.timezone??'UTC',now);
+ const dueSecond=Math.max(0,Number(interval.startSecond)-minutesBefore*60);
+ if(clock.mapDate===mapDate && dueSecond<=clock.second)throw new GameError('conflict','Choose a reminder time that is still in the future.');
+ if(mapDate<clock.mapDate)throw new GameError('conflict','This schedule is in the past.');
+ const endSecond=Math.min(86400,Math.max(Number(interval.endSecond),Number(interval.startSecond)+1));
+ const key=activityKey(interval);
+ const title=String(interval.metadata?.displayTitle??interval.metadata?.title??({meal:'Meal',workout:'Workout',task:'Task',sleep:'Sleep',nap:'Nap',fasting:'Fasting'}[interval.intervalKind]??'Scheduled stop')).slice(0,120);
+ const body='Open this stop.';
+ await client.query(`INSERT INTO scheduler_notifications(notification_id,user_id,day_map_id,plan_id,plan_revision,semantic_key,
+  activity_key,source_node_id,interval_id,kind,title,body,start_second,due_at,expires_at,explicit_reminder)
+  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'activity',$10,$11,$12,
+   (($13::date + $14 * interval '1 second') AT TIME ZONE $15),
+   (($13::date + $16 * interval '1 second') AT TIME ZONE $15),TRUE)
+  ON CONFLICT(user_id,day_map_id,semantic_key) DO NOTHING`,
+  [randomUUID(),userID,plan.day_map_id,plan.plan_id,plan.plan_revision,`explicit:${requestID}`,key,interval.sourceNodeID??null,interval.intervalID,title,body,interval.startSecond,mapDate,dueSecond,plan.timezone,endSecond]);
+ return {message:`Reminder added for ${minutesBefore===0?'the start time':`${minutesBefore} minutes before`}.`,current:true,
+  sourceNodeID:interval.sourceNodeID??null,mapDate};
+}
+
 export async function notificationAction(client,userID,payload,now=new Date()) {
  if(!/^[0-9a-f-]{36}$/i.test(String(payload.id??'')))throw new GameError('invalid_payload','Invalid notification ID.');
  const n=(await client.query('SELECT * FROM scheduler_notifications WHERE notification_id=$1 AND user_id=$2 FOR UPDATE',[payload.id,userID])).rows[0];

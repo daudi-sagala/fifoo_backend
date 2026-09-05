@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { updatePreferences, registerDevice, notificationAction, reconcilePlan } from '../src/notifications/store.js';
+import { updatePreferences, registerDevice, notificationAction, reconcilePlan, createExplicitReminder } from '../src/notifications/store.js';
 import { dispatchOne } from '../src/notifications/dispatch.js';
 const user='11111111-1111-4111-8111-111111111111';
 const id='22222222-2222-4222-8222-222222222222';
@@ -67,4 +67,21 @@ test('accepted delivery is recorded separately from notification read status',as
  assert.ok(db.calls.some(c=>c.sql.includes('pg_advisory_xact_lock')));
  assert.ok(db.calls.some(c=>c.sql.includes('INSERT INTO notification_delivery_attempts')&&c.args[2]==='accepted'));
  assert.equal(db.calls.some(c=>c.sql.includes('read_at=')),false);
+});
+
+
+test('explicit route reminder is tied to the active interval and never edits the schedule',async()=>{
+ const now=new Date('2026-09-05T15:00:00Z');
+ const db=fake({'FROM day_plan_versions p JOIN day_maps':row(plan)});
+ const requestID='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+ const result=await createExplicitReminder(db,user,{mapDate:'2026-09-05',intervalID:id,minutesBefore:10,requestID},now);
+ const insert=db.calls.find(c=>c.sql.includes('INSERT INTO scheduler_notifications'));
+ assert.ok(insert);assert.match(insert.sql,/explicit_reminder/);assert.equal(insert.args[5],`explicit:${requestID}`);
+ assert.equal(insert.args[13],44400);assert.equal(result.message,'Reminder added for 10 minutes before.');
+ assert.equal(db.calls.some(c=>/UPDATE day_|INSERT INTO day_/.test(c.sql)),false);
+});
+
+test('explicit route reminder rejects a stale or past reminder time',async()=>{
+ const db=fake({'FROM day_plan_versions p JOIN day_maps':row(plan)});
+ await assert.rejects(createExplicitReminder(db,user,{mapDate:'2026-09-05',intervalID:id,minutesBefore:10,requestID:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},new Date('2026-09-05T17:00:00Z')),/future/);
 });

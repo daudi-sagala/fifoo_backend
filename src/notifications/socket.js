@@ -1,9 +1,9 @@
 import { withTransaction } from '../db.js';
 import { GameError, failureAck } from '../lib/errors.js';
 import { createTokenWindow } from '../http/rateLimit.js';
-import { listInbox, notificationAction, registerDevice, updatePreferences } from './store.js';
+import { createExplicitReminder, listInbox, notificationAction, registerDevice, updatePreferences } from './store.js';
 export const SCHEDULER_EVENTS=Object.freeze({state:'game:scheduler:state',preferences:'game:scheduler:preferences',
- device:'game:scheduler:device',presence:'game:scheduler:presence',unregister:'game:scheduler:unregister',action:'game:scheduler:action'});
+ device:'game:scheduler:device',presence:'game:scheduler:presence',unregister:'game:scheduler:unregister',action:'game:scheduler:action',reminder:'game:scheduler:reminder'});
 const limiter=createTokenWindow({name:'scheduler-socket',limit:120,windowMs:60000});
 export function registerSchedulerSocket(socket) {
  const handle=(event,work)=>socket.on(event,async(payload={},ack)=>{
@@ -25,4 +25,5 @@ export function registerSchedulerSocket(socket) {
  });
  handle(SCHEDULER_EVENTS.unregister,async(c,u,d)=>{await c.query('DELETE FROM notification_devices WHERE user_id=$1 AND device_id=$2',[u,d]);return {};});
  handle(SCHEDULER_EVENTS.action,async(c,u,_d,p)=>notificationAction(c,u,p));
+ handle(SCHEDULER_EVENTS.reminder,async(c,u,_d,p)=>createExplicitReminder(c,u,p));
 }
