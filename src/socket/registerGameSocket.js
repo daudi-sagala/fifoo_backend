@@ -49,6 +49,7 @@ import { loadAuthoritativeDayPlanState, recordNodeProgressOutcome, rerouteFuture
 import { recordActivitySupportOutcome, refreshActivitySupportPlanForUser } from '../services/activitySupportPlanner.js';
 import { completeOnboarding, loadOnboardingState, previewOnboardingRoute, startOnboarding, updateOnboarding } from '../services/onboarding.js';
 import { answerRouteKnowledgeEncounter, deferRouteKnowledgeEncounter, selectRouteKnowledgeEncounter } from '../services/routeKnowledge.js';
+import { candidatesIncludingUserAddedNode } from '../services/userScheduledStop.js';
 
 
 const mutationRateLimiter = createTokenWindow({
@@ -657,10 +658,70 @@ export function registerGameSocket(io) {
       async ({ client, dayMap, userID, context, payload }) => {
         const nodeResult = await persistNode(client, { dayMap, userID, context, node: payload.node });
         const routeResult = await rebuildRouteWithAttachedNode(client, { dayMap, payload });
+
+        // Add Stop is now an explicit scheduling action. Never commit a future
+        // user-created stop off-route: if legacy geometry cannot include it,
+        // fail the mutation so the node write rolls back with the transaction.
+        if (routeResult.routeAttachmentError) {
+          throw new GameError('route_attachment_failed', routeResult.routeAttachmentError);
+        }
+
+        const decisionSecond = Math.max(0, Math.min(86_399, Math.trunc(Number(
+          payload.currentDayTime?.secondsFromMidnight
+            ?? payload.decisionSecond
+            ?? dayMap.current_time_seconds
+            ?? 0
+        ))));
+
+        const currentDayPlan = await loadAuthoritativeDayPlanState(client, {
+          dayMap,
+          nowSecond: decisionSecond,
+        });
+
+        let dayPlanState = null;
+        if (currentDayPlan?.dayPlan) {
+          const candidates = candidatesIncludingUserAddedNode({
+            dayPlan: currentDayPlan.dayPlan,
+            node: nodeResult.node,
+            decisionSecond,
+          });
+
+          const addedNodeID = nodeResult.node?.id?.rawValue ?? nodeResult.node?.id ?? null;
+          const containsAddedNode = candidates.some((candidate) => (
+            String(candidate.sourceNodeID ?? '') === String(addedNodeID ?? '')
+          ));
+
+          if (!containsAddedNode) {
+            throw new GameError(
+              'invalid_schedule_time',
+              'Choose a future time for this stop so it can be added to today\'s route.',
+            );
+          }
+
+          dayPlanState = await rerouteFutureDayPlan(client, {
+            dayMap,
+            userID,
+            mapDate: context.mapDate,
+            decisionSecond,
+            candidates,
+            rerouteReason: 'future_node_added',
+            routingContext: {
+              source: 'user_add_stop',
+              addedNodeID,
+            },
+            alternativeCount: payload.maxAlternatives ?? 3,
+            timeZoneIdentifier: context.timeZoneIdentifier,
+            requestID: context.requestID,
+            occurredAt: context.sentAt ?? new Date().toISOString(),
+            predictionRuntimeMode: config.predictionRuntimeMode,
+          });
+        }
+
         return {
           node: nodeResult.node,
           routeState: routeResult.routeState,
-          routeAttachmentError: routeResult.routeAttachmentError ?? null,
+          dayPlanState,
+          routeAttachmentError: null,
           routeAttachmentReanchored: routeResult.routeAttachmentReanchored ?? false,
           routeAttachmentRecovered: routeResult.routeAttachmentRecovered ?? false,
         };
@@ -672,6 +733,19 @@ export function registerGameSocket(io) {
           io.to(room).emit(IN.routeState, {
             routeState: result.routeState,
             revision: result.revision,
+          });
+        }
+
+        if (result.dayPlanState) {
+          io.to(room).emit(IN.dayPlanState, {
+            dayPlan: result.dayPlanState.dayPlan,
+            mapDate: result.dayPlanState.mapDate,
+            progressSnapshot: result.dayPlanState.progressSnapshot,
+            planRevision: result.dayPlanState.planRevision,
+            revision: result.revision,
+            rerouteReason: result.dayPlanState.rerouteReason,
+            effectiveAt: result.dayPlanState.effectiveAt,
+            decisionSecond: result.dayPlanState.decisionSecond,
           });
         }
 
