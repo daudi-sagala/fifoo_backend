@@ -16,6 +16,96 @@ function potentialTotal(path) {
   return Math.round((total + Number.EPSILON) * 1_000_000) / 1_000_000;
 }
 
+function normalizeSystemAction(systemAction, decisionSecond) {
+  if (!systemAction || typeof systemAction !== 'object') return null;
+  const action = String(systemAction.action ?? '').trim();
+  if (!['breakFast', 'iAmAwake'].includes(action)) return null;
+  return {
+    action,
+    intervalID: systemAction.intervalID ?? null,
+    stateKind: systemAction.stateKind ?? null,
+    decisionSecond: Math.max(0, Math.min(86_399, Math.trunc(Number(decisionSecond) || 0))),
+  };
+}
+
+function contextAfterSystemAction(context, systemAction) {
+  if (!systemAction) return context;
+  const decisionSecond = systemAction.decisionSecond;
+  if (systemAction.action !== 'iAmAwake') return context;
+
+  const fallbackWake = Math.max(0, Math.min(86_400, Math.trunc(Number(
+    context.dayStartSecond ?? context.wakeSecond ?? 7 * 3600,
+  ))));
+  const fallbackSleep = Math.max(0, Math.min(86_400, Math.trunc(Number(
+    context.dayEndSecond ?? context.sleepSecond ?? 23 * 3600,
+  ))));
+  const derivedWindows = fallbackSleep >= fallbackWake
+    ? [
+        ...(fallbackWake > 0 ? [{ startSecond: 0, endSecond: fallbackWake }] : []),
+        ...(fallbackSleep < 86_400 ? [{ startSecond: fallbackSleep, endSecond: 86_400 }] : []),
+      ]
+    : [{ startSecond: fallbackSleep, endSecond: fallbackWake }];
+  const windows = Array.isArray(context.sleepWindows) && context.sleepWindows.length
+    ? context.sleepWindows
+    : derivedWindows;
+  const clipped = windows.flatMap((window) => {
+    const start = Number(window.startSecond);
+    const end = Number(window.endSecond);
+    if (!(start < decisionSecond && decisionSecond < end)) return [{ ...window }];
+    return start < decisionSecond
+      ? [{ ...window, endSecond: decisionSecond }]
+      : [];
+  });
+  return {
+    ...context,
+    sleepWindows: clipped,
+    wakeOverrideSecond: decisionSecond,
+    systemStateOverride: {
+      ...(context.systemStateOverride ?? {}),
+      wokeAtSecond: decisionSecond,
+    },
+  };
+}
+
+function candidatesAfterSystemAction(candidates, systemAction) {
+  if (!systemAction || systemAction.action !== 'breakFast') return candidates;
+  const start = systemAction.decisionSecond;
+  const durationSeconds = Math.min(30 * 60, Math.max(1, 86_400 - start));
+  if (durationSeconds <= 0) return candidates;
+
+  // "Break Fast" is itself a real behavioral fact: the user has begun an
+  // eating window even if meal details are captured later. This short
+  // system-generated meal placeholder terminates the current fast and lets
+  // the normal state derivation start a new fasting cycle when it ends.
+  const breakFastCandidate = {
+    key: `system-break-fast-${start}`,
+    candidateKey: `system-break-fast-${start}`,
+    decisionGroup: `system-break-fast-${start}`,
+    kind: 'meal',
+    sourceNodeID: null,
+    required: true,
+    fixedStartSecond: start,
+    earliestStartSecond: start,
+    latestEndSecond: start + durationSeconds,
+    durationSeconds,
+    progressCategory: 'nutrition',
+    progressWeightHint: 0.0001,
+    goalImpact: 0,
+    priority: 1,
+    urgency: 1,
+    preferenceFit: 1,
+    contextFit: 1,
+    completionProbability: 1,
+    completionEvaluator: { type: 'binary' },
+    metadata: {
+      systemGeneratedAction: true,
+      action: 'breakFast',
+      displayTitle: 'Breaking fast',
+    },
+  };
+  return [breakFastCandidate, ...(Array.isArray(candidates) ? candidates : [])];
+}
+
 async function insertPath(client, planID, path, pathOrder) {
   const result = await client.query(
     `INSERT INTO day_plan_paths(
@@ -36,11 +126,10 @@ async function insertPath(client, planID, path, pathOrder) {
       json({
         selectedCandidateKeys: path.selectedCandidateKeys ?? [],
         skippedDecisionGroups: path.skippedDecisionGroups ?? [],
-        // Sleep/Nap/Fasting are authoritative primary-route activities even
-        // though they live in an overlapping presentation layer rather than
-        // the dominant continuous interval list. Persist them with the path
-        // row so completed/chosen membership survives every reload/audit.
-        primaryActivityStateIntervals: path.systemStateIntervals ?? [],
+        // Preserve the overlapping Sleep/Nap/Fasting state truth with the path
+        // for audit/reload. Actionable foreground system activities themselves
+        // are persisted normally in `day_plan_intervals`.
+        systemStateIntervals: path.systemStateIntervals ?? [],
       }),
     ],
   );
@@ -124,7 +213,7 @@ export async function persistCompiledDayPlan(client, {
   );
 
   const graphData = {
-    schema: 'fifoo.day-graph.v3',
+    schema: 'fifoo.day-graph.v4',
     dayStartSecond: 0,
     dayEndSecond: 86_400,
     completedPath,
@@ -264,6 +353,7 @@ export async function rerouteFutureDayPlan(client, {
   decisionSecond,
   candidates,
   boundaryOutcome = null,
+  systemAction = null,
   rerouteReason = 'context_changed',
   routingContext = {},
   algorithmName = 'fifoo-deterministic-router',
@@ -276,7 +366,7 @@ export async function rerouteFutureDayPlan(client, {
   predictionRuntimeMode = 'legacy',
 } = {}) {
   const active = await client.query(
-    `SELECT plan_id,graph_data,algorithm_name,algorithm_version,rules_hash
+    `SELECT plan_id,graph_data,algorithm_name,algorithm_version,rules_hash,routing_context
        FROM day_plan_versions
       WHERE day_map_id=$1 AND plan_status='active'
       FOR UPDATE`,
@@ -286,18 +376,48 @@ export async function rerouteFutureDayPlan(client, {
   const previous = active.rows[0];
   const idSeed = `${userID}:${mapDate}:reroute:${decisionSecond}`;
   const currentPrimaryPath = activePrimaryPath(previous.graph_data, idSeed);
+  const normalizedSystemAction = normalizeSystemAction(systemAction, decisionSecond);
+  const effectiveRoutingContext = contextAfterSystemAction({
+    ...(previous.routing_context ?? {}),
+    ...(routingContext ?? {}),
+  }, normalizedSystemAction);
+  const effectiveCandidates = candidatesAfterSystemAction(candidates, normalizedSystemAction);
 
   if (boundaryOutcome) {
-    const boundaryInterval = currentPrimaryPath.intervals.find((interval) => (
-      interval.startSecond < Number(decisionSecond) && interval.endSecond > Number(decisionSecond)
-    ));
+    const decision = Number(decisionSecond);
+    const boundaryInterval = normalizedSystemAction?.intervalID
+      ? currentPrimaryPath.intervals.find((interval) => (
+          String(interval.intervalID) === String(normalizedSystemAction.intervalID)
+        ))
+      : currentPrimaryPath.intervals.find((interval) => (
+          interval.startSecond < decision && interval.endSecond > decision
+        ));
+
+    if (normalizedSystemAction) {
+      if (!boundaryInterval
+          || boundaryInterval.metadata?.systemActivity !== true
+          || decision < boundaryInterval.startSecond
+          || decision > boundaryInterval.endSecond) {
+        throw new RangeError('The requested system activity is not active at the reroute boundary.');
+      }
+      const stateKind = String(
+        boundaryInterval.metadata?.stateKind
+          ?? boundaryInterval.metadata?.presentationKind
+          ?? boundaryInterval.intervalKind,
+      );
+      if (normalizedSystemAction.stateKind
+          && String(normalizedSystemAction.stateKind) !== stateKind) {
+        throw new RangeError('The requested system activity state does not match the active interval.');
+      }
+    }
+
     if (boundaryInterval) {
       await recordProgressOutcome(client, {
         dayMap,
         userID,
         intervalID: boundaryInterval.intervalID,
         actual: boundaryOutcome,
-        nowSecond: Number(decisionSecond),
+        nowSecond: decision,
       });
     }
   }
@@ -312,9 +432,9 @@ export async function rerouteFutureDayPlan(client, {
     dayMap,
     mapDate,
     decisionSecond: Number(decisionSecond),
-    candidates,
+    candidates: effectiveCandidates,
     routingContext: {
-      ...routingContext,
+      ...effectiveRoutingContext,
       decisionType: 'future_reroute',
       rerouteReason,
     },
@@ -327,7 +447,7 @@ export async function rerouteFutureDayPlan(client, {
     decisionSecond,
     candidates: prediction.candidates,
     context: {
-      ...routingContext,
+      ...effectiveRoutingContext,
       idSeed,
       predictionModeOverride: prediction.predictionMode,
     },
@@ -343,13 +463,14 @@ export async function rerouteFutureDayPlan(client, {
     completedPath: optimized.completedPath,
     chosenPath: optimized.chosenPath,
     alternativeBranches: optimized.alternativeBranches,
-    routingContext,
+    routingContext: effectiveRoutingContext,
     decisionSummary: {
       predictionMode: optimized.predictionMode,
       candidateRouteCount: optimized.candidateRouteCount,
       lockedPotentialPoints: optimized.lockedPotentialPoints,
       remainingPotentialPoints: optimized.remainingPotentialPoints,
       predictionModel: prediction.model,
+      systemAction: normalizedSystemAction,
     },
     parentPlanID: previous.plan_id,
     rerouteReason,
@@ -378,11 +499,11 @@ export async function rerouteFutureDayPlan(client, {
     predictionMode: optimized.predictionMode,
     predictionModelName: prediction.model?.name ?? 'completion-prior-blend',
     predictionModelVersion: prediction.model?.version ?? 1,
-    routingContext,
+    routingContext: effectiveRoutingContext,
     progressSnapshot: decisionProgressSnapshot,
     requestID,
     occurredAt,
-    candidates: optimized.candidateObservations ?? candidates,
+    candidates: optimized.candidateObservations ?? effectiveCandidates,
     routes: optimized.routeObservations ?? [
       routeObservation(optimized.chosenPath, 0, { selected: true, routeKind: 'chosen' }),
       ...optimized.alternativeBranches.map((path, index) => (
@@ -409,7 +530,7 @@ export async function rerouteFutureDayPlan(client, {
     carriedLedgerEntryCount,
     progressSnapshot,
     dayPlan: {
-      schema: 'fifoo.day-graph.v3',
+      schema: 'fifoo.day-graph.v4',
       dayStartSecond: 0,
       dayEndSecond: 86_400,
       completedPath: optimized.completedPath,
@@ -480,7 +601,7 @@ async function activePlanRows(client, dayMapID) {
     client.query(
       `SELECT
          i.plan_interval_id,i.algorithm_interval_id AS interval_id,i.start_second,i.end_second,
-         i.potential_points,i.completion_evaluator,i.interval_data,
+         i.interval_kind,i.potential_points,i.completion_evaluator,i.interval_data,
          p.expected_progress
        FROM day_plan_versions v
        JOIN day_plan_paths p ON p.plan_id=v.plan_id AND p.path_kind IN ('completed','chosen')
@@ -516,6 +637,9 @@ export async function loadProgressSnapshot(client, { dayMapID, nowSecond = 0 } =
       startSecond: Number(row.start_second),
       endSecond: Number(row.end_second),
       potentialPoints: Number(row.potential_points),
+      intervalKind: row.interval_kind,
+      completionEvaluator: row.completion_evaluator,
+      metadata: row.interval_data ?? {},
       expectedCompletionProbability: row.interval_data?.completionProbability,
     })),
     ledgerEntries: rows.ledger.map((row) => ({
@@ -662,3 +786,10 @@ export async function recordNodeProgressOutcome(client, {
     nowSecond,
   });
 }
+
+// Pure helpers exported only for regression tests and operational diagnostics.
+export const dayPlanningInternals = Object.freeze({
+  normalizeSystemAction,
+  contextAfterSystemAction,
+  candidatesAfterSystemAction,
+});

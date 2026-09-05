@@ -5,7 +5,7 @@
  * file later with personalization, goals, preferences, availability, medical
  * constraints, work schedules, etc. The generator only consumes this plan.
  */
-export const STANDARD_WEIGHT_LOSS_DAY_VERSION = 3;
+export const STANDARD_WEIGHT_LOSS_DAY_VERSION = 4;
 
 export function standardWeightLossDayRules() {
   return {

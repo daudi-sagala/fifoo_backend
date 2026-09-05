@@ -198,6 +198,53 @@ function specialIntervalMetadata(interval, {
   };
 }
 
+function systemActivityAction(presentationKind) {
+  return presentationKind === 'fasting' ? 'breakFast' : 'iAmAwake';
+}
+
+/**
+ * The overlapping systemStateIntervals layer answers "what state is true?".
+ * Foreground Sleep/Nap/Fasting intervals answer "what is the player doing?".
+ * Mark the latter as first-class, actionable route activities without abusing
+ * sourceNodeID (which is a FK to persisted user/content nodes).
+ *
+ * The interval UUID is the stable system-activity node identity for this plan
+ * revision. iOS uses it exactly like a route stop ID when projecting arrows.
+ */
+function materializeForegroundSystemActivities(intervals, { pathKind = 'chosen' } = {}) {
+  return (intervals ?? []).map((interval) => {
+    const presentationKind = interval.metadata?.presentationKind ?? interval.intervalKind;
+    if (!['sleep', 'nap', 'fasting'].includes(presentationKind)
+        || !['sleep', 'fasting'].includes(interval.intervalKind)) {
+      return interval;
+    }
+
+    return {
+      ...interval,
+      completionEvaluator: presentationKind === 'fasting'
+        ? {
+            type: 'fasting',
+            plannedStartSecond: interval.startSecond,
+            plannedEndSecond: interval.endSecond,
+          }
+        : {
+            type: 'duration',
+            plannedSeconds: Math.max(1, interval.endSecond - interval.startSecond),
+          },
+      metadata: {
+        ...(interval.metadata ?? {}),
+        systemActivity: true,
+        systemActivityNodeID: interval.intervalID,
+        stateKind: presentationKind,
+        actionable: true,
+        availableActions: [systemActivityAction(presentationKind)],
+        routeActivity: true,
+        routeMembership: pathKind,
+      },
+    };
+  });
+}
+
 function splitAtCycleHours(interval, cycleStartSecond, { idSeed, label }) {
   const boundaries = [interval.startSecond];
   let nextBoundary = cycleStartSecond + (Math.floor((interval.startSecond - cycleStartSecond) / 3600) + 1) * 3600;
@@ -300,16 +347,12 @@ function applyFastingTileVisibility(intervals) {
       return interval;
     }
 
-    const hourNumber = Math.max(1, Math.trunc(finiteNumber(interval.metadata.hourNumber, 1)));
-    const cycleStartSecond = Math.trunc(finiteNumber(
-      interval.metadata.cycleStartSecond,
-      interval.startSecond,
-    ));
-    const hourStart = cycleStartSecond + ((hourNumber - 1) * 3600);
-    const hourEnd = hourStart + 3600;
+    // Foreground composition is exact-time based. A workout that occupies
+    // 10:15-10:45 should not erase the otherwise-valid fasting route activity
+    // at 10:00-10:15 or 10:45-11:00 merely because they share an hour number.
     const blocked = blockingIntervals.some((candidate) => intervalsOverlap(
-      hourStart,
-      hourEnd,
+      interval.startSecond,
+      interval.endSecond,
       candidate.startSecond,
       candidate.endSecond,
     ));
@@ -451,7 +494,8 @@ function systemStateSeed({
     metadata: {
       systemGenerated: true,
       primaryStateNode: true,
-      routeActivity: true,
+      routeActivity: false,
+      stateOnly: true,
       routeMembership: 'primary',
       ...metadata,
     },
@@ -755,9 +799,12 @@ export function compileContinuousDay({
     });
   }
 
-  const materializedIntervals = materializeSpecialHourlyIntervals(
-    applyMetabolicContexts(intervals),
-    { idSeed: `${idSeed}:${pathKey}:special`, context },
+  const materializedIntervals = materializeForegroundSystemActivities(
+    materializeSpecialHourlyIntervals(
+      applyMetabolicContexts(intervals),
+      { idSeed: `${idSeed}:${pathKey}:special`, context },
+    ),
+    { pathKind },
   );
 
   const path = {
@@ -776,7 +823,11 @@ export function compileContinuousDay({
           ...interval,
           metadata: {
             ...(interval.metadata ?? {}),
-            routeActivity: true,
+            // State truth remains separate from the actionable activity node.
+            // It can overlap a workout/task and therefore must not itself be
+            // interpreted as a foreground route vertex.
+            routeActivity: false,
+            stateOnly: true,
             routeMembership: pathKind,
           },
         })),
@@ -805,8 +856,14 @@ export function splitIntervalAt(interval, splitSecond, { idSeed = interval.inter
   return [left, right];
 }
 
+function roundProgress(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 1_000_000) / 1_000_000;
+}
+
 function progressTotal(intervals) {
-  return intervals.reduce((total, interval) => total + Number(interval.potentialPoints ?? 0), 0);
+  return roundProgress(
+    intervals.reduce((total, interval) => total + Number(interval.potentialPoints ?? 0), 0),
+  );
 }
 
 function pathWith({ source, pathKind, pathKey, intervals, systemStateIntervals = [], idSeed }) {
@@ -824,9 +881,10 @@ function pathWith({ source, pathKind, pathKey, intervals, systemStateIntervals =
 
 /**
  * Freezes the authoritative primary path at an exact end-exclusive second.
- * When the boundary cuts an interval, the elapsed side receives the original
- * value-based potential in full; its obsolete future tail receives none and
- * can be superseded without changing the historical denominator.
+ * When the boundary cuts a normal activity, the elapsed side keeps the
+ * original value-based potential in full. Duration-derived system activities
+ * (Sleep/Nap/Fasting) are different: their potential is split proportionally
+ * at the boundary so an early wake/broken fast cannot manufacture progress.
  */
 export function freezePathAt(path, decisionSecond, { idSeed = 'fifoo-reroute' } = {}) {
   validateContinuousPath(path, { requireFullDay: true });
@@ -848,17 +906,32 @@ export function freezePathAt(path, decisionSecond, { idSeed = 'fifoo-reroute' } 
         idSeed: `${idSeed}:${interval.intervalID}`,
       });
       splitFromIntervalID = interval.intervalID;
+      const isSystemActivity = interval.metadata?.systemActivity === true;
+      const originalPotential = Number(interval.potentialPoints ?? 0);
+      const duration = Math.max(1, interval.endSecond - interval.startSecond);
+      const elapsedRatio = Math.max(0, Math.min(1, (point - interval.startSecond) / duration));
+      const completedPotential = isSystemActivity
+        ? roundProgress(originalPotential * elapsedRatio)
+        : originalPotential;
+      const originalProgressStart = Number(
+        interval.plannedProgressStart ?? interval.plannedProgressEnd ?? 0,
+      );
+      const completedProgressEnd = isSystemActivity
+        ? originalProgressStart + completedPotential
+        : Number(interval.plannedProgressEnd ?? originalProgressStart);
       completed.push({
         ...left,
         lifecycleStatus: interval.lifecycleStatus === 'planned' ? 'active' : interval.lifecycleStatus,
-        potentialPoints: Number(interval.potentialPoints ?? 0),
+        potentialPoints: completedPotential,
+        plannedProgressStart: originalProgressStart,
+        plannedProgressEnd: completedProgressEnd,
       });
       future.push({
         ...right,
         lifecycleStatus: 'superseded',
         potentialPoints: 0,
-        plannedProgressStart: interval.plannedProgressEnd ?? interval.plannedProgressStart ?? 0,
-        plannedProgressEnd: interval.plannedProgressEnd ?? interval.plannedProgressStart ?? 0,
+        plannedProgressStart: completedProgressEnd,
+        plannedProgressEnd: completedProgressEnd,
       });
     }
   }
@@ -873,7 +946,8 @@ export function freezePathAt(path, decisionSecond, { idSeed = 'fifoo-reroute' } 
     lifecycleStatus: interval.endSecond <= point ? 'completed' : interval.lifecycleStatus,
     metadata: {
       ...(interval.metadata ?? {}),
-      routeActivity: true,
+      routeActivity: false,
+      stateOnly: true,
       routeMembership: 'completed',
     },
   }));
@@ -887,7 +961,8 @@ export function freezePathAt(path, decisionSecond, { idSeed = 'fifoo-reroute' } 
     lifecycleStatus: interval.startSecond <= point && interval.endSecond > point ? 'active' : 'planned',
     metadata: {
       ...(interval.metadata ?? {}),
-      routeActivity: true,
+      routeActivity: false,
+      stateOnly: true,
       routeMembership: 'chosen',
     },
   }));
@@ -1010,9 +1085,17 @@ export function compileAlternativeBranches(primaryPath, alternativePaths, { idSe
 
     const origin = primary[prefix];
     const rejoin = primarySuffix < primary.length ? primary[primarySuffix] : null;
+    // Alternatives carry the consequences of their behavioral decisions.
+    // Sleep/Fasting are still never decision candidates, but their derived
+    // foreground activity intervals belong in the alternative preview/route.
     const branchIntervals = candidate
       .slice(prefix + 1, candidateSuffix)
-      .map(neutralAlternativeCoverageInterval);
+      .map((interval) => ({
+        ...interval,
+        metadata: interval.metadata?.systemActivity
+          ? { ...(interval.metadata ?? {}), routeMembership: 'alternative' }
+          : interval.metadata,
+      }));
     if (branchIntervals[0].startSecond !== origin.endSecond) {
       throw new RangeError('An alternative must start exactly where its origin interval ends.');
     }
@@ -1058,9 +1141,6 @@ export function validateDayGraph({ completedPath = null, chosenPath, alternative
     validateContinuousPath(path);
     if ((path.systemStateIntervals ?? []).length) {
       throw new RangeError('Alternative paths cannot expose primary Sleep/Fasting state nodes.');
-    }
-    if (path.intervals.some((interval) => ['sleep', 'fasting'].includes(interval.intervalKind))) {
-      throw new RangeError('Alternative paths cannot contain Sleep/Fasting state intervals.');
     }
     const originKind = intervalOwner.get(path.originIntervalID);
     if (!PRIMARY_KINDS.has(originKind)) {

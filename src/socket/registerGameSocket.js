@@ -630,6 +630,7 @@ export function registerGameSocket(io) {
         ),
         candidates: payload.candidates,
         boundaryOutcome: payload.boundaryOutcome ?? null,
+        systemAction: payload.systemAction ?? null,
         rerouteReason: payload.reason ?? 'context_changed',
         routingContext: payload.routingContext ?? {},
         alternativeCount: payload.maxAlternatives ?? 2,

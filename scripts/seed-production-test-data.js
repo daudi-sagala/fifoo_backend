@@ -207,11 +207,11 @@ async function seedCatalog(client) {
     const mealType = index < 4 ? 'breakfast' : index < 8 ? 'lunch' : index < 12 ? 'snack' : 'dinner';
     await client.query(
       `INSERT INTO meals(
-         meal_id,title,meal_main_image_url,calories_per_meal,created_by,status,description,
+         meal_id,title,calories_per_meal,created_by,status,description,
          meal_types,meal_image_urls,meal_video_urls,is_available,is_featured,tags
-       ) VALUES ($1,$2,$3,$4,NULL,'active',$5,$6::text[],ARRAY[$3]::text[],'{}'::text[],TRUE,$7,$8::text[])
+       ) VALUES ($1,$2,$4,NULL,'active',$5,$6::text[],ARRAY[$3]::text[],'{}'::text[],TRUE,$7,$8::text[])
        ON CONFLICT(meal_id) DO UPDATE SET
-         title=EXCLUDED.title,meal_main_image_url=EXCLUDED.meal_main_image_url,
+         title=EXCLUDED.title,
          calories_per_meal=EXCLUDED.calories_per_meal,status='active',description=EXCLUDED.description,
          meal_types=EXCLUDED.meal_types,meal_image_urls=EXCLUDED.meal_image_urls,
          is_available=TRUE,is_featured=EXCLUDED.is_featured,tags=EXCLUDED.tags,updated_at=NOW()`,

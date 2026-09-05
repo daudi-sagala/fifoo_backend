@@ -143,7 +143,7 @@ test('future rerouting rejects a fixed candidate in elapsed time', () => {
   }), /before the reroute boundary/i);
 });
 
-test('meal alternatives carry the meal decision only while primary fasting state is recomputed from the selected meal time', () => {
+test('meal alternatives carry derived fasting activities while the selected meal determines the fasting state', () => {
   const result = optimizeDayRoutes({
     context: {
       idSeed: 'meal-decision-state-routing',
@@ -175,7 +175,9 @@ test('meal alternatives carry the meal decision only while primary fasting state
   assert.ok(result.alternativeBranches.length >= 1);
   assert.ok(result.alternativeBranches.every((branch) => branch.systemStateIntervals.length === 0));
   assert.ok(result.alternativeBranches.every((branch) => (
-    branch.intervals.every((interval) => !['sleep', 'fasting'].includes(interval.intervalKind))
+    branch.intervals
+      .filter((interval) => ['sleep', 'fasting'].includes(interval.intervalKind))
+      .every((interval) => interval.metadata?.systemActivity === true)
   )));
 
   const chosenBreakfast = result.chosenPath.intervals.find((interval) => interval.intervalKind === 'meal');

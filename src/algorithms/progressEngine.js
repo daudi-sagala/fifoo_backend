@@ -64,23 +64,34 @@ function allocateWithinCategory(intervals, budget, { maxFastingPoints }) {
   if (denominator <= 0) return intervals.map(() => 0);
 
   const allocations = weights.map((weight) => budget * (weight / denominator));
+  const fastingIndices = intervals
+    .map((interval, index) => ({ interval, index }))
+    .filter(({ interval }) => interval.intervalKind === 'fasting')
+    .map(({ index }) => index);
+  const fastingAllocated = sum(fastingIndices.map((index) => allocations[index]));
   let reclaimed = 0;
-  const recipients = [];
-  for (let index = 0; index < intervals.length; index += 1) {
-    if (intervals[index].intervalKind === 'fasting' && allocations[index] > maxFastingPoints) {
-      reclaimed += allocations[index] - maxFastingPoints;
-      allocations[index] = maxFastingPoints;
-    } else if (intervals[index].intervalKind !== 'fasting' && weights[index] > 0) {
-      recipients.push(index);
+
+  // `maxFastingPoints` is a DAILY/category-wide ceiling, not a per-hour cap.
+  // This lets fasting influence progress without rewarding ever-longer fasting.
+  if (fastingAllocated > maxFastingPoints && fastingAllocated > 0) {
+    const scale = maxFastingPoints / fastingAllocated;
+    for (const index of fastingIndices) {
+      const before = allocations[index];
+      allocations[index] *= scale;
+      reclaimed += before - allocations[index];
     }
   }
+
+  const recipients = intervals
+    .map((interval, index) => ({ interval, index }))
+    .filter(({ interval, index }) => interval.intervalKind !== 'fasting' && weights[index] > 0)
+    .map(({ index }) => index);
 
   if (reclaimed > 0 && recipients.length) {
     const recipientWeight = sum(recipients.map((index) => weights[index]));
     for (const index of recipients) {
       allocations[index] += reclaimed * (weights[index] / recipientWeight);
     }
-    reclaimed = 0;
   }
 
   // A category containing only fasting intervals remains capped on purpose;
@@ -298,7 +309,41 @@ export function calculateProgressSnapshot({
     ledgerEntries.filter((entry) => intervalIDs.has(entry.intervalID)),
   );
   const plannedPoints = roundPoints(sum(intervals.map((interval) => interval.potentialPoints)));
-  const earnedPoints = roundPoints(sum([...ledger.values()].map((entry) => entry.earnedPoints)));
+  let implicitSystemEarnedPoints = 0;
+  for (const interval of intervals) {
+    if (ledger.has(interval.intervalID)) continue;
+    if (interval.metadata?.systemActivity !== true) continue;
+    if (nowSecond <= interval.startSecond) continue;
+
+    // Derived system activities earn continuously while the state remains
+    // true. An explicit ledger outcome (Break Fast / I Am Awake) overrides
+    // this inference for the affected interval.
+    const evaluator = interval.completionEvaluator ?? (
+      interval.intervalKind === 'fasting'
+        ? { type: 'fasting', plannedStartSecond: interval.startSecond, plannedEndSecond: interval.endSecond }
+        : { type: 'duration', plannedSeconds: Math.max(1, interval.endSecond - interval.startSecond) }
+    );
+    const score = interval.intervalKind === 'fasting'
+      ? evaluateCompletion(interval, {}, { nowSecond })
+      : clamp(
+          (Math.min(nowSecond, interval.endSecond) - interval.startSecond)
+          / Math.max(1, interval.endSecond - interval.startSecond),
+        );
+    const potential = Math.max(0, Number(interval.potentialPoints ?? 0));
+    implicitSystemEarnedPoints += potential * score;
+  }
+
+  // `earnedPoints` is the immutable, ledger-backed value used for audit and
+  // reroute invariants. Derived Sleep/Nap/Fasting activities also accrue live
+  // progress while their state is still true, but that inferred value is kept
+  // separate until an explicit outcome is written to the ledger.
+  const earnedPoints = roundPoints(
+    sum([...ledger.values()].map((entry) => entry.earnedPoints)),
+  );
+  const liveSystemEarnedPoints = roundPoints(implicitSystemEarnedPoints);
+  const effectiveEarnedPoints = roundPoints(
+    earnedPoints + liveSystemEarnedPoints,
+  );
 
   let expectedRemainingPoints = 0;
   let achievableRemainingPoints = 0;
@@ -306,24 +351,34 @@ export function calculateProgressSnapshot({
     if (ledger.has(interval.intervalID)) continue;
     const points = Number(interval.potentialPoints ?? 0);
     if (interval.endSecond <= nowSecond) continue;
-    achievableRemainingPoints += points;
+    let remainingPoints = points;
+    if (interval.metadata?.systemActivity === true && nowSecond > interval.startSecond) {
+      const elapsedRatio = clamp(
+        (Math.min(nowSecond, interval.endSecond) - interval.startSecond)
+          / Math.max(1, interval.endSecond - interval.startSecond),
+      );
+      remainingPoints = points * (1 - elapsedRatio);
+    }
+    achievableRemainingPoints += remainingPoints;
     const probability = clamp(
       completionProbabilities[interval.intervalID]
         ?? interval.expectedCompletionProbability
         ?? 0.65,
     );
-    expectedRemainingPoints += points * probability;
+    expectedRemainingPoints += remainingPoints * probability;
   }
 
   const denominator = plannedPoints > 0 ? plannedPoints : DAILY_PROGRESS_POINTS;
   return {
     plannedPoints,
     earnedPoints,
-    dayProgress: clamp(earnedPoints / denominator),
+    liveSystemEarnedPoints,
+    effectiveEarnedPoints,
+    dayProgress: clamp(effectiveEarnedPoints / denominator),
     achievableRemainingPoints: roundPoints(achievableRemainingPoints),
     expectedRemainingPoints: roundPoints(expectedRemainingPoints),
-    expectedFinishPoints: roundPoints(Math.min(denominator, earnedPoints + expectedRemainingPoints)),
-    expectedDayFinish: clamp((earnedPoints + expectedRemainingPoints) / denominator),
+    expectedFinishPoints: roundPoints(Math.min(denominator, effectiveEarnedPoints + expectedRemainingPoints)),
+    expectedDayFinish: clamp((effectiveEarnedPoints + expectedRemainingPoints) / denominator),
     finalizedIntervalCount: ledger.size,
   };
 }

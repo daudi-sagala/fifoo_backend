@@ -358,21 +358,47 @@ function compileRoute(state, index, context, categoryBudgets, {
   futurePath.intervals = allocateDailyBudget(futurePath.intervals, {
     categoryBudgets,
     totalPoints,
-  }).map((interval) => ({
-    ...interval,
-    plannedProgressStart: interval.plannedProgressStart + progressOffset,
-    plannedProgressEnd: interval.plannedProgressEnd + progressOffset,
-  }));
+  }).map((interval) => {
+    const presentationKind = interval.metadata?.presentationKind ?? interval.intervalKind;
+    const systemProbability = interval.metadata?.systemActivity === true
+      ? predictionFor({
+          key: `system:${presentationKind}`,
+          kind: presentationKind,
+          completionProbability: context?.systemActivityCompletionProbability?.[presentationKind]
+            ?? context?.populationPriors?.[presentationKind]
+            ?? (presentationKind === 'sleep' ? 0.75 : presentationKind === 'nap' ? 0.70 : 0.72),
+        }, context)
+      : null;
+    return {
+      ...interval,
+      plannedProgressStart: interval.plannedProgressStart + progressOffset,
+      plannedProgressEnd: interval.plannedProgressEnd + progressOffset,
+      metadata: {
+        ...(interval.metadata ?? {}),
+        ...(systemProbability == null ? {} : { completionProbability: systemProbability }),
+      },
+    };
+  });
   futurePath.systemStateIntervals = projectSystemStateProgress(
     futurePath.systemStateIntervals ?? [],
     futurePath.intervals,
   );
-  futurePath.routeScore = state.score + finalRouteAdjustment(state);
   futurePath.expectedProgress = futurePath.intervals.reduce((total, interval) => {
     const probability = interval.metadata?.completionProbability
       ?? (interval.potentialPoints > 0 ? 0.65 : 0);
     return total + interval.potentialPoints * clamp(probability);
   }, 0);
+  futurePath.expectedSystemProgress = futurePath.intervals.reduce((total, interval) => {
+    if (interval.metadata?.systemActivity !== true) return total;
+    const probability = interval.metadata?.completionProbability ?? 0.65;
+    return total + interval.potentialPoints * clamp(probability);
+  }, 0);
+  // Full-route consequences now participate in final ranking. Behavioral
+  // candidates are scored first, then the derived Sleep/Nap/Fasting activity
+  // outcome adds a bounded adjustment after the route is actually compiled.
+  futurePath.routeScore = state.score
+    + finalRouteAdjustment(state)
+    + clamp(futurePath.expectedSystemProgress / Math.max(1, totalPoints), 0, 1) * 0.20;
   futurePath.selectedCandidateKeys = state.scheduled.map((candidate) => candidate.key);
   futurePath.skippedDecisionGroups = state.skippedGroups;
   return futurePath;
@@ -448,21 +474,33 @@ export function optimizeDayRoutes({
   }
 
   const ranked = beam
-    .map((state) => ({ ...state, score: state.score + finalRouteAdjustment(state) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, Math.trunc(routePoolSize)));
-  const diverse = chooseDiverse(
-    ranked,
+
+  // Compile the candidate pool before selecting Chosen so derived system
+  // activities affect ranking instead of being cosmetic post-processing.
+  const compiledRanked = ranked
+    .map((state, index) => ({
+      state,
+      path: compileRoute(
+        state,
+        index,
+        context,
+        categoryBudgets,
+        { routeStartSecond, totalPoints, progressOffset },
+      ),
+    }))
+    .sort((a, b) => (b.path.routeScore ?? 0) - (a.path.routeScore ?? 0));
+
+  const diverseStates = chooseDiverse(
+    compiledRanked.map((entry) => entry.state),
     Math.max(1, Math.trunc(alternativeCount) + 1),
     clamp(minimumAlternativeDistance),
   );
-  const suffixPaths = diverse.map((state, index) => compileRoute(
-    state,
-    index,
-    context,
-    categoryBudgets,
-    { routeStartSecond, totalPoints, progressOffset },
-  ));
+  const compiledBySignature = new Map(
+    compiledRanked.map((entry) => [routeSignature(entry.state), entry.path]),
+  );
+  const suffixPaths = diverseStates.map((state) => compiledBySignature.get(routeSignature(state)));
   const chosenPath = suffixPaths[0];
   const branchPrimaryPath = completedPath
     ? stitchPrimaryPaths(completedPath, chosenPath, {
@@ -493,7 +531,7 @@ export function optimizeDayRoutes({
   }
 
   const selectedCandidateKeys = new Set(
-    diverse[0]?.scheduled?.map((candidate) => candidate.key) ?? [],
+    diverseStates[0]?.scheduled?.map((candidate) => candidate.key) ?? [],
   );
   const candidateObservations = normalized.map((candidate, index) => ({
     ...candidate,
@@ -514,7 +552,12 @@ export function optimizeDayRoutes({
     routeFeatures: {
       skippedDecisionGroups: path.skippedDecisionGroups ?? [],
       intervalCount: path.intervals.length,
-      activityIntervalCount: path.intervals.filter((interval) => interval.sourceNodeID).length,
+      activityIntervalCount: path.intervals.filter((interval) => (
+        interval.sourceNodeID || interval.metadata?.systemActivity === true
+      )).length,
+      systemActivityIntervalCount: path.intervals.filter((interval) => (
+        interval.metadata?.systemActivity === true
+      )).length,
     },
   }));
 

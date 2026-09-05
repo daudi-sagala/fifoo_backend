@@ -83,7 +83,7 @@ test('overlapping primary intervals are rejected', () => {
   }), /overlap/i);
 });
 
-test('future-only freeze splits at the exact second and locks value rather than duration', () => {
+test('future-only freeze splits duration-based system activity value proportionally at the exact second', () => {
   const path = compileContinuousDay({
     idSeed: 'future-freeze',
     scheduledIntervals: [
@@ -100,7 +100,11 @@ test('future-only freeze splits at the exact second and locks value rather than 
 
   assert.equal(frozen.completedPath.intervals.at(-1).endSecond, decisionSecond);
   assert.equal(frozen.supersededFuturePath.intervals[0].startSecond, decisionSecond);
-  assert.equal(frozen.completedPath.intervals.at(-1).potentialPoints, original.potentialPoints);
+  const elapsedRatio = (decisionSecond - original.startSecond) / (original.endSecond - original.startSecond);
+  assert.ok(Math.abs(
+    frozen.completedPath.intervals.at(-1).potentialPoints
+      - original.potentialPoints * elapsedRatio
+  ) < 0.000001);
   assert.equal(frozen.supersededFuturePath.intervals[0].potentialPoints, 0);
   assert.equal(frozen.lockedPotentialPoints + frozen.remainingPotentialPoints, 100);
   assert.equal(
@@ -125,8 +129,13 @@ test('day-start/day-end aliases drive the user sleep window and preserve interna
   assert.ok(sleep.every((interval) => interval.metadata?.displayTitle === 'Sleep hour'));
   assert.equal(sleep[0].metadata?.hourNumber, 1);
   assert.equal(sleep.at(-1).metadata?.hourNumber, 8);
-  assert.ok(sleep.every((interval) => interval.metadata?.routeActivity === true));
+  assert.ok(sleep.every((interval) => interval.metadata?.routeActivity === false));
+  assert.ok(sleep.every((interval) => interval.metadata?.stateOnly === true));
   assert.ok(sleep.every((interval) => interval.metadata?.routeMembership === 'chosen'));
+  const foregroundSleep = path.intervals.filter((interval) => interval.metadata?.stateKind === 'sleep');
+  assert.ok(foregroundSleep.length >= 8);
+  assert.ok(foregroundSleep.every((interval) => interval.metadata?.systemActivity === true));
+  assert.ok(foregroundSleep.every((interval) => interval.metadata?.routeActivity === true));
 });
 
 test('sleep fillers become numbered hourly tiles across midnight', () => {
@@ -224,7 +233,7 @@ test('hourly special tiles preserve aggregate planner weights', () => {
   assert.ok(Math.abs(fastingBeforeBreakfastWeight - 0.35) < 1e-9);
 });
 
-test('fasting remains in graph but its visible tile is suppressed when that fasting hour contains an activity', () => {
+test('foreground fasting is segmented around a real activity while latent fasting state continues underneath it', () => {
   const path = compileContinuousDay({
     idSeed: 'fasting-visibility-test',
     context: { wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 },
@@ -257,8 +266,19 @@ test('fasting remains in graph but its visible tile is suppressed when that fast
   ));
 
   assert.ok(fastingHour3Pieces.length >= 1);
-  assert.ok(fastingHour3Pieces.every((interval) => interval.metadata?.specialDayTile === false));
-  assert.ok(fastingHour3Pieces.every((interval) => interval.metadata?.suppressedByActivity === true));
+  assert.ok(fastingHour3Pieces.every((interval) => interval.metadata?.specialDayTile === true));
+  assert.ok(fastingHour3Pieces.every((interval) => interval.metadata?.systemActivity === true));
+  assert.ok(fastingHour3Pieces.every((interval) => interval.metadata?.availableActions?.includes('breakFast')));
+  assert.ok(fastingHour3Pieces.every((interval) => (
+    interval.endSecond <= 10 * 3600 + 15 * 60
+      || interval.startSecond >= 10 * 3600 + 45 * 60
+  )));
+  const latentUnderWorkout = path.systemStateIntervals.filter((interval) => (
+    interval.intervalKind === 'fasting'
+    && interval.startSecond < 10 * 3600 + 45 * 60
+    && 10 * 3600 + 15 * 60 < interval.endSecond
+  ));
+  assert.ok(latentUnderWorkout.length >= 1);
 
   const fastingHour4 = path.intervals.find((interval) => (
     interval.intervalKind === 'fasting'
@@ -344,7 +364,7 @@ test('primary route generates sleep and fasting together while sleep has the hig
   assert.equal(fastingAtSleep.metadata.displayPriority, 10);
 });
 
-test('alternative branches never expose sleep or fasting state nodes', () => {
+test('alternative branches contain derived system activities but never carry the overlapping state layer', () => {
   const context = { wakeSecond: 7 * 3600, sleepSecond: 23 * 3600 };
   const chosen = compileContinuousDay({
     idSeed: 'decision-state-alt',
@@ -368,7 +388,10 @@ test('alternative branches never expose sleep or fasting state nodes', () => {
   const [branch] = compileAlternativeBranches(chosen, [alternative], { idSeed: 'decision-state-alt' });
 
   assert.deepEqual(branch.systemStateIntervals, []);
-  assert.equal(branch.intervals.some((interval) => ['sleep', 'fasting'].includes(interval.intervalKind)), false);
+  const derived = branch.intervals.filter((interval) => ['sleep', 'fasting'].includes(interval.intervalKind));
+  assert.ok(derived.length > 0);
+  assert.ok(derived.every((interval) => interval.metadata?.systemActivity === true));
+  assert.ok(derived.every((interval) => interval.metadata?.routeMembership === 'alternative'));
   assert.ok(branch.intervals.some((interval) => interval.key.includes('breakfast-9')));
 });
 

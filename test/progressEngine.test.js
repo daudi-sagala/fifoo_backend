@@ -37,9 +37,10 @@ test('daily budget is exactly 100 and fasting rewards are capped', () => {
   const intervals = plannedDay();
   const total = intervals.reduce((value, interval) => value + interval.potentialPoints, 0);
   assert.ok(Math.abs(total - 100) < 0.000001);
-  assert.ok(intervals
+  const fastingTotal = intervals
     .filter((interval) => interval.intervalKind === 'fasting')
-    .every((interval) => interval.potentialPoints <= 4));
+    .reduce((total, interval) => total + interval.potentialPoints, 0);
+  assert.ok(fastingTotal <= 4.000001);
 });
 
 test('completion evaluators support partial workouts and composite meals', () => {

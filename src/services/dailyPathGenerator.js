@@ -5,10 +5,9 @@ import { stableUUID } from '../lib/stableUUID.js';
 import { ensureDayMap, bumpRevision } from './dayMaps.js';
 import { persistNode } from './nodes.js';
 import { generateBackendRouteState } from './routes.js';
-import { gridRouteAnchorForNode, makeGridRoadGraph } from './gridRoadGraph.js';
+import { gridRoadConstants, gridRouteAnchorForNode, makeGridRoadGraph } from './gridRoadGraph.js';
 import { standardWeightLossDayRules } from '../rules/standardWeightLossDay.js';
-import { compileContinuousDay, projectSystemStateProgress } from '../algorithms/dayGraph.js';
-import { allocateDailyBudget } from '../algorithms/progressEngine.js';
+import { optimizeDayRoutes } from '../algorithms/routingEngine.js';
 import { activeDayPlanExists, persistCompiledDayPlan } from './dayPlanning.js';
 import { captureRoutingDecision, routeObservation } from './learningData.js';
 import { linkPredictionScoreRun, scoreCandidatesForRouting } from './predictionService.js';
@@ -193,7 +192,83 @@ export function buildGeneratedDayNode({ userID, mapDate, rules, stop }) {
   };
 }
 
-export function buildStandardWeightLossDay({ userID, mapDate, rules = standardWeightLossDayRules() }) {
+function makeGeneratedRouteAnchorsForwardCompatible(entries) {
+  const pitch = Number(gridRoadConstants.secondsPerPitch);
+  let previous = null;
+
+  for (const entry of entries) {
+    if (previous) {
+      const previousSeconds = Number(previous.anchor?.coordinate?.time?.secondsFromMidnight ?? 0);
+      const currentSeconds = Number(entry.anchor?.coordinate?.time?.secondsFromMidnight ?? 0);
+      const previousBand = Math.floor(Math.min(previousSeconds, 86_399) / pitch);
+      const currentBand = Math.floor(Math.min(currentSeconds, 86_399) / pitch);
+      const previousEdge = previous.anchor?.roadLocation?.edge;
+      const currentEdge = entry.anchor?.roadLocation?.edge;
+
+      // Horizontal grid streets exist only at 90-minute row boundaries. Two
+      // generated stops on different vertical streets inside the same row band
+      // cannot be connected without moving backward in time. Keep the visible
+      // semantic node coordinates unchanged, but reuse the prior hidden routing
+      // street for the later stop so the leg remains strictly forward in time.
+      if (previousBand === currentBand && previousEdge && currentEdge) {
+        entry.anchor = {
+          ...entry.anchor,
+          roadLocation: {
+            edge: {
+              ...currentEdge,
+              edgeID: previousEdge.edgeID,
+            },
+          },
+        };
+      }
+    }
+    previous = entry;
+  }
+
+  return entries;
+}
+
+function applyOptimizedRoutePlacement(generated, optimized) {
+  const routablePaths = [optimized.chosenPath, ...(optimized.alternativePaths ?? [])];
+  for (const entry of generated) {
+    const interval = routablePaths
+      .flatMap((path) => path.intervals)
+      .find((candidate) => String(candidate.sourceNodeID ?? '') === String(entry.nodeID));
+    if (!interval) continue;
+    const start = Number(interval.plannedProgressStart ?? interval.plannedProgressEnd ?? 0);
+    const end = Number(interval.plannedProgressEnd ?? start);
+    const progressPercent = (start + end) / 2;
+    const secondsFromMidnight = interval.startSecond;
+    entry.node.placement = coordinatePlacement(secondsFromMidnight, progressPercent);
+    entry.node.time = { secondsFromMidnight };
+    entry.anchor = gridRouteAnchorForNode({
+      nodeID: entry.nodeID,
+      secondsFromMidnight,
+      progressPercent,
+    });
+  }
+  generated.sort((a, b) => a.node.time.secondsFromMidnight - b.node.time.secondsFromMidnight);
+  makeGeneratedRouteAnchorsForwardCompatible(generated);
+  return generated;
+}
+
+function dayGraphFromOptimized(optimized) {
+  return {
+    schema: 'fifoo.day-graph.v4',
+    chosenPath: optimized.chosenPath,
+    alternativeBranches: optimized.alternativeBranches,
+    // Internal full-path alternatives are retained for route-learning capture.
+    // Only connected branches are persisted in the public Day Graph contract.
+    alternativePaths: optimized.alternativePaths,
+  };
+}
+
+export function buildStandardWeightLossDay({
+  userID,
+  mapDate,
+  rules = standardWeightLossDayRules(),
+  alternativeCount = 2,
+}) {
   assertUUID(userID, 'userID');
   const validatedMapDate = assertMapDate(mapDate, 'mapDate');
   if (!rules || typeof rules !== 'object' || !String(rules.name ?? '').trim()) {
@@ -212,29 +287,43 @@ export function buildStandardWeightLossDay({ userID, mapDate, rules = standardWe
 
   const generated = rules.stops.map((stop) => buildGeneratedDayNode({ userID, mapDate: validatedMapDate, rules, stop }));
   generated.sort((a, b) => a.node.time.secondsFromMidnight - b.node.time.secondsFromMidnight);
+  makeGeneratedRouteAnchorsForwardCompatible(generated);
   const entriesByKey = new Map(generated.map((entry) => [entry.key, entry]));
-  const scheduledIntervals = rules.stops.map((stop) => {
+  const routingCandidates = rules.stops.map((stop) => {
     const entry = entriesByKey.get(stop.key);
     const startSecond = entry.node.time.secondsFromMidnight;
-    const endSecond = Math.min(
-      86_400,
-      startSecond + Math.max(1, Math.trunc(Number(stop.durationMinutes ?? 0) * 60)),
-    );
+    const durationSeconds = Math.max(1, Math.trunc(Number(stop.durationMinutes ?? 0) * 60));
+    const fixedStartSecond = stop.fixedStart === false ? null : startSecond;
     return {
       key: stop.key,
       candidateKey: stop.key,
+      decisionGroup: stop.decisionGroup ?? stop.key,
       sourceNodeID: entry.nodeID,
-      intervalKind: stop.kind,
-      startSecond,
-      endSecond,
+      kind: stop.kind,
+      required: stop.required !== false,
+      fixedStartSecond,
+      earliestStartSecond: Number.isFinite(Number(stop.earliestStartSecond))
+        ? Number(stop.earliestStartSecond)
+        : startSecond,
+      latestEndSecond: Number.isFinite(Number(stop.latestEndSecond))
+        ? Number(stop.latestEndSecond)
+        : Math.min(86_400, startSecond + durationSeconds),
+      durationSeconds,
       progressCategory: stop.progressCategory,
       progressWeightHint: stop.progressWeightHint,
+      goalImpact: stop.goalImpact ?? Math.min(1, Number(stop.progressWeightHint ?? 1) / 25),
+      priority: stop.priority ?? 0.6,
+      urgency: stop.urgency ?? 0.5,
+      preferenceFit: stop.preferenceFit ?? 0.65,
+      contextFit: stop.contextFit ?? 0.65,
+      momentumFit: stop.momentumFit ?? 0.5,
+      effortCost: stop.effortCost ?? (stop.kind === 'workout' ? 0.55 : 0.2),
+      fatigueCost: stop.fatigueCost ?? (stop.kind === 'workout' ? 0.45 : 0.1),
       completionEvaluator: stop.completionEvaluator ?? (
         stop.kind === 'workout'
-          ? { type: 'duration', plannedSeconds: endSecond - startSecond }
+          ? { type: 'duration', plannedSeconds: durationSeconds }
           : { type: 'binary' }
       ),
-      metabolicContext: stop.kind === 'meal' ? 'fed' : null,
       metadata: {
         title: stop.title,
         location: stop.location ?? '',
@@ -242,36 +331,23 @@ export function buildStandardWeightLossDay({ userID, mapDate, rules = standardWe
       },
     };
   });
-  const continuousPath = compileContinuousDay({
-    scheduledIntervals,
-    idSeed: `${rules.name}:v${rules.version}:${userID}:${validatedMapDate}`,
-    pathKey: 'chosen',
-    pathKind: 'chosen',
-    context: rules.dayContext ?? {},
-  });
-  continuousPath.intervals = allocateDailyBudget(continuousPath.intervals, {
+  const optimized = optimizeDayRoutes({
+    candidates: routingCandidates,
+    context: {
+      ...(rules.dayContext ?? {}),
+      idSeed: `${rules.name}:v${rules.version}:${userID}:${validatedMapDate}`,
+    },
     categoryBudgets: rules.categoryBudgets,
+    alternativeCount,
   });
-  continuousPath.systemStateIntervals = projectSystemStateProgress(
-    continuousPath.systemStateIntervals ?? [],
-    continuousPath.intervals,
-  );
-  continuousPath.routeScore = null;
-  continuousPath.expectedProgress = continuousPath.intervals.reduce((total, interval) => (
-    total + Number(interval.potentialPoints ?? 0) * Number(
-      interval.metadata?.completionProbability
-        ?? (interval.intervalKind === 'freeTime' ? 0 : 0.65),
-    )
-  ), 0);
+
+  applyOptimizedRoutePlacement(generated, optimized);
   return {
     rules,
     rulesHash: hashRules(rules),
     nodes: generated,
-    dayGraph: {
-      schema: 'fifoo.day-graph.v3',
-      chosenPath: continuousPath,
-      alternativeBranches: [],
-    },
+    routingCandidates,
+    dayGraph: dayGraphFromOptimized(optimized),
   };
 }
 
@@ -526,7 +602,12 @@ export async function generateDailyPathForUser(client, {
     personalizedDayContext,
   );
 
-  const plan = buildStandardWeightLossDay({ userID: id, mapDate: validatedMapDate, rules: resolvedRules });
+  const plan = buildStandardWeightLossDay({
+    userID: id,
+    mapDate: validatedMapDate,
+    rules: resolvedRules,
+    alternativeCount: maxAlternatives,
+  });
   const newNodeIDs = plan.nodes.map((entry) => entry.nodeID);
   const prior = await generationRun(client, dayMap.day_map_id);
 
@@ -548,6 +629,37 @@ export async function generateDailyPathForUser(client, {
       rules: { name: resolvedRules.name, version: resolvedRules.version, hash: plan.rulesHash },
     };
   }
+
+  const initialDecisionSecond = Math.max(0, Math.min(86_400, Number(currentDayTimeSeconds) || 0));
+  const prediction = await scoreCandidatesForRouting(client, {
+    configuredMode: predictionRuntimeMode,
+    userID: id,
+    dayMap,
+    mapDate: validatedMapDate,
+    decisionSecond: initialDecisionSecond,
+    candidates: plan.routingCandidates,
+    routingContext: {
+      mode: 'cold-start',
+      timeZoneIdentifier: validatedTimeZone,
+      decisionType: 'initial_day_plan',
+      ...(resolvedRules.dayContext ?? {}),
+    },
+  });
+
+  // Initial day construction now uses the same scored optimizer as future
+  // rerouting. The model may change ranking, but never hard constraints.
+  const optimizedWithPrediction = optimizeDayRoutes({
+    candidates: prediction.candidates,
+    context: {
+      ...(resolvedRules.dayContext ?? {}),
+      idSeed: `${resolvedRules.name}:v${resolvedRules.version}:${id}:${validatedMapDate}`,
+      predictionModeOverride: prediction.predictionMode,
+    },
+    categoryBudgets: resolvedRules.categoryBudgets,
+    alternativeCount: maxAlternatives,
+  });
+  plan.dayGraph = dayGraphFromOptimized(optimizedWithPrediction);
+  applyOptimizedRoutePlacement(plan.nodes, optimizedWithPrediction);
 
   const priorNodeIDs = Array.isArray(prior?.generated_node_ids) ? prior.generated_node_ids : [];
   if (priorNodeIDs.length) {
@@ -583,73 +695,12 @@ export async function generateDailyPathForUser(client, {
     },
   });
 
-  const initialLearningCandidates = plan.dayGraph.chosenPath.intervals
-    .filter((interval) => interval.sourceNodeID)
-    .map((interval, index) => ({
-      key: interval.candidateKey ?? interval.key,
-      candidateKey: interval.candidateKey ?? interval.key,
-      decisionGroup: interval.metadata?.decisionGroup ?? interval.candidateKey ?? interval.key,
-      kind: interval.intervalKind,
-      sourceNodeID: interval.sourceNodeID,
-      candidateRank: index,
-      wasEligible: true,
-      selectedByChosenRoute: true,
-      completionProbability: interval.metadata?.completionProbability ?? 0.65,
-      predictedProgressPoints: interval.potentialPoints ?? null,
-      durationSeconds: Math.max(1, interval.endSecond - interval.startSecond),
-      earliestStartSecond: interval.startSecond,
-      latestEndSecond: interval.endSecond,
-      fixedStartSecond: interval.startSecond,
-      progressCategory: interval.progressCategory,
-      progressWeightHint: interval.progressWeightHint ?? interval.potentialPoints ?? 0,
-      required: true,
-    }));
-
-  const initialDecisionSecond = Math.max(0, Math.min(86_400, Number(currentDayTimeSeconds) || 0));
-  const prediction = await scoreCandidatesForRouting(client, {
-    configuredMode: predictionRuntimeMode,
-    userID: id,
-    dayMap,
-    mapDate: validatedMapDate,
-    decisionSecond: initialDecisionSecond,
-    candidates: initialLearningCandidates,
-    routingContext: {
-      mode: 'cold-start',
-      timeZoneIdentifier: validatedTimeZone,
-      decisionType: 'initial_day_plan',
-      ...(resolvedRules.dayContext ?? {}),
-    },
-  });
-  const predictedByKey = new Map(
-    prediction.candidates.map((candidate) => [String(candidate.candidateKey ?? candidate.key), candidate]),
-  );
-  plan.dayGraph.chosenPath.intervals = plan.dayGraph.chosenPath.intervals.map((interval) => {
-    if (!interval.sourceNodeID) return interval;
-    const predicted = predictedByKey.get(String(interval.candidateKey ?? interval.key));
-    if (!predicted) return interval;
-    return {
-      ...interval,
-      metadata: {
-        ...(interval.metadata ?? {}),
-        completionProbability: predicted.completionProbability,
-        modelCompletionProbability: predicted.modelCompletionProbability ?? null,
-        predictionLevel: predicted.predictionLevel ?? 'legacy',
-      },
-    };
-  });
-  plan.dayGraph.chosenPath.expectedProgress = plan.dayGraph.chosenPath.intervals.reduce((total, interval) => (
-    total + Number(interval.potentialPoints ?? 0) * Number(
-      interval.metadata?.completionProbability
-        ?? (interval.intervalKind === 'freeTime' ? 0 : 0.65),
-    )
-  ), 0);
-
   const dayPlan = await persistCompiledDayPlan(client, {
     dayMap,
     userID: id,
     mapDate: validatedMapDate,
     algorithmName: 'fifoo-deterministic-day-planner',
-    algorithmVersion: 1,
+    algorithmVersion: 4,
     rulesHash: plan.rulesHash,
     chosenPath: plan.dayGraph.chosenPath,
     alternativeBranches: plan.dayGraph.alternativeBranches,
@@ -668,9 +719,15 @@ export async function generateDailyPathForUser(client, {
     },
   });
 
+  const selectedCandidateKeys = new Set(
+    plan.dayGraph.chosenPath.selectedCandidateKeys
+      ?? plan.dayGraph.chosenPath.intervals
+        .filter((interval) => interval.sourceNodeID)
+        .map((interval) => interval.candidateKey ?? interval.key),
+  );
   const scoredLearningCandidates = prediction.candidates.map((candidate) => ({
     ...candidate,
-    selectedByChosenRoute: true,
+    selectedByChosenRoute: selectedCandidateKeys.has(String(candidate.candidateKey ?? candidate.key)),
   }));
 
   const learningDecision = await captureRoutingDecision(client, {
@@ -683,7 +740,7 @@ export async function generateDailyPathForUser(client, {
     decisionType: 'initial_day_plan',
     decisionSecond: initialDecisionSecond,
     algorithmName: 'fifoo-deterministic-day-planner',
-    algorithmVersion: 1,
+    algorithmVersion: 4,
     rulesHash: plan.rulesHash,
     predictionMode: prediction.predictionMode,
     predictionModelName: prediction.model?.name ?? 'completion-prior-blend',
@@ -694,7 +751,12 @@ export async function generateDailyPathForUser(client, {
       ...(resolvedRules.dayContext ?? {}),
     },
     candidates: scoredLearningCandidates,
-    routes: [routeObservation(plan.dayGraph.chosenPath, 0, { selected: true, routeKind: 'chosen' })],
+    routes: [
+      routeObservation(plan.dayGraph.chosenPath, 0, { selected: true, routeKind: 'chosen' }),
+      ...(plan.dayGraph.alternativePaths ?? []).map((path, index) => (
+        routeObservation(path, index + 1, { selected: false, routeKind: 'alternative' })
+      )),
+    ],
   });
   await linkPredictionScoreRun(
     client,
