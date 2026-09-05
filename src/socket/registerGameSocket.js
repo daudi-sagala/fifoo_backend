@@ -25,6 +25,7 @@ import {
   selectBackendAlternativeRoute,
 } from '../services/routes.js';
 import { searchDayMap } from '../services/search.js';
+import { createCatalogSuggestion, searchCatalogSuggestions } from '../services/catalogSuggestions.js';
 import {
   createLiveMessage,
   createLiveReaction,
@@ -742,6 +743,55 @@ export function registerGameSocket(io) {
       }
     });
 
+
+
+    socket.on(OUT.catalogSearch, async (rawPayload, callback) => {
+      const ack = ackOnce(callback);
+      try {
+        const userID = requireAuth(socket);
+        const payload = assertObject(rawPayload ?? {}, 'catalog search payload');
+        const client = await pool.connect();
+        try {
+          const items = await searchCatalogSuggestions(client, {
+            userID,
+            kind: payload.kind,
+            query: payload.query ?? '',
+            limit: payload.limit ?? 20,
+          });
+          ack({ ...successAck(), items });
+        } finally {
+          client.release();
+        }
+      } catch (error) {
+        ack(failureAck(error));
+      }
+    });
+
+    socket.on(OUT.catalogSuggestionCreate, async (rawPayload, callback) => {
+      const ack = ackOnce(callback);
+      try {
+        const userID = requireAuth(socket);
+        const payload = assertObject(rawPayload ?? {}, 'catalog suggestion payload');
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          const result = await createCatalogSuggestion(client, {
+            userID,
+            kind: payload.kind,
+            title: payload.title,
+          });
+          await client.query('COMMIT');
+          ack({ ...successAck(), ...result });
+        } catch (error) {
+          try { await client.query('ROLLBACK'); } catch {}
+          throw error;
+        } finally {
+          client.release();
+        }
+      } catch (error) {
+        ack(failureAck(error));
+      }
+    });
 
 
     // Generic account/social surfaces. These are authenticated user data, but

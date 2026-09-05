@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ROUTE_KNOWLEDGE_QUESTIONS, encounterCooldownSeconds, rankRouteKnowledgeQuestions } from '../src/services/routeKnowledge.js';
 import { compileContinuousDay } from '../src/algorithms/dayGraph.js';
 
-test('route knowledge catalog contains all three gamified encounter styles', () => {
+test('planning questions retain all three internal presentation styles', () => {
   const styles = new Set(ROUTE_KNOWLEDGE_QUESTIONS.map((question) => question.style));
   assert.deepEqual(styles, new Set(['road_encounter', 'scout_report', 'quick_duel']));
   assert.ok(ROUTE_KNOWLEDGE_QUESTIONS.length >= 10);
@@ -45,4 +45,17 @@ test('third-shift sleep window can be represented as protected daytime sleep', (
   assert.equal(sleep[0].metadata.displayTitle, 'Sleep hour');
   assert.equal(sleep.at(-1).metadata.displayTitle, 'Sleep hour');
   assert.equal(path.intervals.find((interval) => interval.startSecond === 0)?.intervalKind, 'fasting');
+});
+
+
+test('planning question copy is direct and avoids game-style terminology', () => {
+  const visible = ROUTE_KNOWLEDGE_QUESTIONS.flatMap((question) => [
+    question.title, question.prompt, question.helperText,
+    ...question.options.flatMap((option) => [option.title, option.subtitle]),
+  ]).filter(Boolean).join(' ').toLowerCase();
+  for (const word of ['scout', 'duel', 'march', 'open road', 'moving camp', 'wild card']) {
+    assert.equal(visible.includes(word), false, `unexpected game-style term: ${word}`);
+  }
+  assert.match(ROUTE_KNOWLEDGE_QUESTIONS.find((q) => q.key === 'work_structure').prompt, /work hours/i);
+  assert.match(ROUTE_KNOWLEDGE_QUESTIONS.find((q) => q.key === 'sleep_pattern').prompt, /sleep schedule/i);
 });

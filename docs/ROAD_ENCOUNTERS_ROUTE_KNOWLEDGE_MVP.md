@@ -1,5 +1,8 @@
 # Fifoo Route Knowledge Encounters MVP
 
+> **Current product language (v0.15.2):** Internal style identifiers are retained for protocol compatibility. User-facing question titles, prompts, options, defer actions, and result copy use plain scheduling language.
+
+
 ## Purpose
 
 Route Knowledge Encounters turn missing routing/profile information into short, gamified events rather than a conventional onboarding questionnaire. The backend decides whether information is valuable enough to ask for, chooses one question, and sends a presentation contract to iOS. Answers are persisted as structured route knowledge and can immediately affect the authoritative future Day Graph.

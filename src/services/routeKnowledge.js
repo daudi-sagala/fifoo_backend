@@ -14,41 +14,41 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
     key: 'work_structure', version: 1, knowledgeKey: 'work_structure', style: 'road_encounter',
     category: 'schedule', priority: 100, rewardXP: 10, selectionMode: 'single', maxSelections: 1,
     accent: 'royalPurple', icon: 'map.fill',
-    title: 'SET WORK HOURS', prompt: 'What does your usual workday look like?',
-    helperText: 'I’ll protect the hours that belong to work and plan the rest of your march around them.',
+    title: 'WORK HOURS', prompt: 'What are your usual work hours?',
+    helperText: 'Fifoo uses these hours to avoid scheduling non-work activities during work.',
     routeImpact: 'work_schedule',
     options: [
-      option('early_shift', 'Early March', 'Usually around 6 AM–2 PM', 'sunrise.fill', { type: 'fixed', startTime: '06:00', endTime: '14:00' }),
-      option('day_shift', 'The 9-to-5', 'Mostly daytime work', 'building.2.fill', { type: 'fixed', startTime: '09:00', endTime: '17:00' }),
-      option('evening_shift', 'Late March', 'Usually around 3 PM–11 PM', 'sunset.fill', { type: 'fixed', startTime: '15:00', endTime: '23:00' }),
-      option('night_shift', 'Night Watch', 'Overnight / third shift', 'moon.stars.fill', { type: 'fixed', startTime: '23:00', endTime: '07:00' }),
-      option('rotating', 'Shifting Ground', 'My shifts rotate', 'arrow.triangle.2.circlepath', { type: 'rotating' }),
-      option('variable', 'Wild Card', 'Every day can be different', 'shuffle', { type: 'variable' }),
-      option('none', 'Open Road', 'No regular work schedule', 'road.lanes', { type: 'none' }),
+      option('early_shift', 'Early shift', 'Usually around 6 AM–2 PM', 'sunrise.fill', { type: 'fixed', startTime: '06:00', endTime: '14:00' }),
+      option('day_shift', 'Day shift', 'Usually around 9 AM–5 PM', 'building.2.fill', { type: 'fixed', startTime: '09:00', endTime: '17:00' }),
+      option('evening_shift', 'Evening shift', 'Usually around 3 PM–11 PM', 'sunset.fill', { type: 'fixed', startTime: '15:00', endTime: '23:00' }),
+      option('night_shift', 'Night shift', 'Overnight / third shift', 'moon.stars.fill', { type: 'fixed', startTime: '23:00', endTime: '07:00' }),
+      option('rotating', 'Rotating shifts', 'My shifts rotate', 'arrow.triangle.2.circlepath', { type: 'rotating' }),
+      option('variable', 'Variable schedule', 'My work hours change often', 'shuffle', { type: 'variable' }),
+      option('none', 'No regular schedule', 'No regular work hours', 'road.lanes', { type: 'none' }),
     ],
   },
   {
     key: 'sleep_pattern', version: 1, knowledgeKey: 'sleep_pattern', style: 'road_encounter',
     category: 'recovery', priority: 96, rewardXP: 10, selectionMode: 'single', maxSelections: 1,
     accent: 'midnight', icon: 'moon.zzz.fill',
-    title: 'SET SLEEP TIMES', prompt: 'Which sleep schedule is closest to your normal routine?',
-    helperText: 'Sleep becomes protected territory. I’ll place workouts, meals and prep around it.',
+    title: 'SLEEP TIMES', prompt: 'Which sleep schedule is closest to yours?',
+    helperText: 'Fifoo uses these times when scheduling meals, workouts, and preparation.',
     routeImpact: 'sleep_schedule',
     options: [
-      option('early_bird', 'Early Bird Trail', 'About 9:30 PM–5:30 AM', 'sunrise.circle.fill', { bedTime: '21:30', wakeTime: '05:30' }),
-      option('standard', 'Middle Road', 'About 11 PM–7 AM', 'bed.double.fill', { bedTime: '23:00', wakeTime: '07:00' }),
-      option('night_owl', 'Night Owl Road', 'About 1 AM–9 AM', 'moon.fill', { bedTime: '01:00', wakeTime: '09:00' }),
-      option('day_sleeper', 'Day Sleeper', 'About 8 AM–4 PM', 'sun.max.fill', { bedTime: '08:00', wakeTime: '16:00' }),
-      option('variable', 'Moving Camp', 'My sleep changes a lot', 'sparkles', { variable: true }),
+      option('early_bird', '9:30 PM–5:30 AM', 'Earlier sleep schedule', 'sunrise.circle.fill', { bedTime: '21:30', wakeTime: '05:30' }),
+      option('standard', '11 PM–7 AM', 'Typical overnight schedule', 'bed.double.fill', { bedTime: '23:00', wakeTime: '07:00' }),
+      option('night_owl', '1 AM–9 AM', 'Later sleep schedule', 'moon.fill', { bedTime: '01:00', wakeTime: '09:00' }),
+      option('day_sleeper', '8 AM–4 PM', 'Daytime sleep schedule', 'sun.max.fill', { bedTime: '08:00', wakeTime: '16:00' }),
+      option('variable', 'Variable sleep schedule', 'My sleep times change often', 'sparkles', { variable: true }),
     ],
   },
   {
     key: 'food_allergies', version: 1, knowledgeKey: 'food_allergies', style: 'scout_report',
     category: 'nutrition_safety', priority: 110, rewardXP: 10, selectionMode: 'multiple', maxSelections: 8,
     accent: 'warning', icon: 'shield.lefthalf.filled',
-    title: 'FOOD CONSTRAINTS', prompt: 'Any food allergies Fifoo should treat as hard constraints?',
-    helperText: 'Choose every allergy that applies. I will never infer this from your behavior.',
-    safetyNote: 'This is self-reported routing information, not medical advice. Always verify ingredients and food preparation yourself.',
+    title: 'FOOD ALLERGIES', prompt: 'Do you have any food allergies?',
+    helperText: 'Select every allergy that should be considered when showing meal options.',
+    safetyNote: 'Always verify ingredients and food preparation before eating.',
     routeImpact: 'safety_constraint',
     options: [
       option('none', 'None', 'No known food allergies', 'checkmark.shield.fill', { key: 'none' }),
@@ -68,7 +68,7 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
     key: 'diet_style', version: 1, knowledgeKey: 'diet_style', style: 'road_encounter',
     category: 'nutrition', priority: 88, rewardXP: 8, selectionMode: 'single', maxSelections: 1,
     accent: 'green', icon: 'leaf.fill',
-    title: 'SET MEAL PREFERENCES', prompt: 'Which eating style best describes you?',
+    title: 'MEAL PREFERENCES', prompt: 'Which eating pattern should Fifoo use when ranking meals?',
     helperText: 'This helps rank meal candidates. You can change it whenever your routine changes.',
     routeImpact: 'meal_filter',
     options: [
@@ -77,14 +77,14 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
       option('vegan', 'Vegan', null, 'carrot.fill', { key: 'vegan' }),
       option('pescatarian', 'Pescatarian', null, 'fish.fill', { key: 'pescatarian' }),
       option('low_carb', 'Lower carb', null, 'chart.bar.fill', { key: 'low_carb' }),
-      option('other', 'My own road', 'Something else / flexible', 'ellipsis.circle.fill', { key: 'other' }),
+      option('other', 'Other / flexible', 'Something else or flexible', 'ellipsis.circle.fill', { key: 'other' }),
     ],
   },
   {
     key: 'schedule_predictability', version: 1, knowledgeKey: 'schedule_predictability', style: 'quick_duel',
     category: 'schedule', priority: 80, rewardXP: 5, selectionMode: 'single', maxSelections: 1,
-    accent: 'orange', icon: 'bolt.fill', title: 'QUICK DUEL', prompt: 'Is tomorrow usually predictable?',
-    helperText: 'This tells me how aggressively to pre-plan versus keep alternate paths open.', routeImpact: 'routing_preference',
+    accent: 'orange', icon: 'calendar', title: 'SCHEDULE FLEXIBILITY', prompt: 'How predictable is your schedule tomorrow?',
+    helperText: 'This determines how much of the day is fixed in advance.', routeImpact: 'routing_preference',
     options: [
       option('predictable', 'Mostly predictable', 'Plan ahead', 'calendar.badge.checkmark', { key: 'predictable' }),
       option('variable', 'Usually changes', 'Keep options open', 'shuffle', { key: 'variable' }),
@@ -93,29 +93,29 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
   {
     key: 'gym_access', version: 1, knowledgeKey: 'gym_access', style: 'quick_duel',
     category: 'exercise', priority: 76, rewardXP: 5, selectionMode: 'single', maxSelections: 1,
-    accent: 'blue', icon: 'dumbbell.fill', title: 'QUICK DUEL', prompt: 'Do you have reliable gym access?',
-    helperText: 'One tap saves me from sending gym-only workouts down the wrong road.', routeImpact: 'workout_filter',
+    accent: 'blue', icon: 'dumbbell.fill', title: 'GYM ACCESS', prompt: 'Do you have reliable gym access?',
+    helperText: 'This determines whether gym-only workouts can be scheduled.', routeImpact: 'workout_filter',
     options: [
-      option('yes', 'YES · Gym road', null, 'dumbbell.fill', { available: true }),
-      option('no', 'NO · Anywhere road', null, 'house.fill', { available: false }),
+      option('yes', 'Yes', null, 'dumbbell.fill', { available: true }),
+      option('no', 'No', null, 'house.fill', { available: false }),
     ],
   },
   {
     key: 'cooking_frequency', version: 1, knowledgeKey: 'cooking_frequency', style: 'scout_report',
     category: 'nutrition', priority: 72, rewardXP: 7, selectionMode: 'single', maxSelections: 1,
-    accent: 'amber', icon: 'frying.pan.fill', title: 'PREPARATION DETAILS', prompt: 'How often do you realistically cook at home?',
-    helperText: 'I can schedule groceries and prep only when they actually have a chance to happen.', routeImpact: 'support_planning',
+    accent: 'amber', icon: 'frying.pan.fill', title: 'COOKING ROUTINE', prompt: 'How often do you cook at home?',
+    helperText: 'This determines whether grocery and meal-preparation tasks should be scheduled.', routeImpact: 'support_planning',
     options: [
       option('most_days', 'Most days', 'Home cooking is normal for me', 'house.fill', { frequency: 'most_days' }),
       option('few_days', 'A few days a week', 'Mix of home and away', 'calendar', { frequency: 'few_days' }),
-      option('rarely', 'Rarely', 'Keep prep routes light', 'takeoutbag.and.cup.and.straw.fill', { frequency: 'rarely' }),
+      option('rarely', 'Rarely', 'Schedule less meal preparation', 'takeoutbag.and.cup.and.straw.fill', { frequency: 'rarely' }),
     ],
   },
   {
     key: 'commute_pattern', version: 1, knowledgeKey: 'commute_pattern', style: 'scout_report',
     category: 'logistics', priority: 68, rewardXP: 7, selectionMode: 'single', maxSelections: 1,
-    accent: 'teal', icon: 'location.fill', title: 'TRAVEL DETAILS', prompt: 'How much time does a normal one-way commute take?',
-    helperText: 'Travel time can become protected route space instead of invisible schedule friction.', routeImpact: 'travel_buffer',
+    accent: 'teal', icon: 'location.fill', title: 'COMMUTE TIME', prompt: 'How long is your usual one-way commute?',
+    helperText: 'Fifoo reserves this time between work and other scheduled activities.', routeImpact: 'travel_buffer',
     options: [
       option('remote', 'No commute / remote', null, 'house.laptop.fill', { minutes: 0 }),
       option('short', '15 minutes or less', null, 'figure.walk', { minutes: 15 }),
@@ -127,8 +127,8 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
   {
     key: 'workout_time_preference', version: 1, knowledgeKey: 'workout_time_preference', style: 'quick_duel',
     category: 'exercise', priority: 62, rewardXP: 5, selectionMode: 'single', maxSelections: 1,
-    accent: 'pink', icon: 'figure.run', title: 'QUICK DUEL', prompt: 'When does exercise feel most realistic?',
-    helperText: 'Preference is not a hard rule; it nudges route ranking.', routeImpact: 'routing_preference',
+    accent: 'pink', icon: 'figure.run', title: 'WORKOUT TIME', prompt: 'When do you usually prefer to exercise?',
+    helperText: 'This is a scheduling preference, not a fixed time.', routeImpact: 'routing_preference',
     options: [
       option('morning', 'Morning', null, 'sunrise.fill', { key: 'morning' }),
       option('later', 'Later in the day', null, 'sunset.fill', { key: 'later' }),
@@ -138,8 +138,8 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
   {
     key: 'meal_pattern', version: 1, knowledgeKey: 'meal_pattern', style: 'scout_report',
     category: 'nutrition', priority: 58, rewardXP: 6, selectionMode: 'single', maxSelections: 1,
-    accent: 'green', icon: 'fork.knife.circle.fill', title: 'MEAL DETAILS', prompt: 'What meal rhythm is closest to real life?',
-    helperText: 'This improves fasting tiles and meal-window planning.', routeImpact: 'meal_timing',
+    accent: 'green', icon: 'fork.knife.circle.fill', title: 'MEAL SCHEDULE', prompt: 'How many meals do you usually have each day?',
+    helperText: 'This is used to schedule meals and fasting periods.', routeImpact: 'meal_timing',
     options: [
       option('two', 'Usually 2 meals', null, '2.circle.fill', { mealsPerDay: 2 }),
       option('three', 'Usually 3 meals', null, '3.circle.fill', { mealsPerDay: 3 }),
@@ -150,8 +150,8 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
   {
     key: 'weekend_structure', version: 1, knowledgeKey: 'weekend_structure', style: 'quick_duel',
     category: 'schedule', priority: 50, rewardXP: 5, selectionMode: 'single', maxSelections: 1,
-    accent: 'purple', icon: 'calendar', title: 'QUICK DUEL', prompt: 'Does your schedule change on weekends?',
-    helperText: 'I can learn separate weekday and weekend route patterns.', routeImpact: 'routing_preference',
+    accent: 'purple', icon: 'calendar', title: 'WEEKEND SCHEDULE', prompt: 'Is your weekend schedule similar to weekdays?',
+    helperText: 'This determines whether weekends should use a different schedule.', routeImpact: 'routing_preference',
     options: [
       option('similar', 'Pretty similar', null, 'equal.circle.fill', { key: 'similar' }),
       option('different', 'Completely different', null, 'arrow.triangle.branch', { key: 'different' }),
@@ -160,8 +160,8 @@ export const ROUTE_KNOWLEDGE_QUESTIONS = Object.freeze([
   {
     key: 'groceries_readiness', version: 1, knowledgeKey: 'groceries_readiness', style: 'quick_duel',
     category: 'support', priority: 44, rewardXP: 5, selectionMode: 'single', maxSelections: 1,
-    accent: 'amber', icon: 'cart.fill', title: 'QUICK DUEL', prompt: 'When you plan to cook, are groceries usually already home?',
-    helperText: 'This helps the Scout decide whether to place a grocery stop before meal prep.', routeImpact: 'support_planning',
+    accent: 'amber', icon: 'cart.fill', title: 'GROCERIES', prompt: 'When you plan to cook, are groceries usually already available?',
+    helperText: 'This determines whether a grocery task should be scheduled before meal preparation.', routeImpact: 'support_planning',
     options: [
       option('usually', 'Usually ready', null, 'checkmark.circle.fill', { key: 'usually' }),
       option('sometimes', 'Sometimes', null, 'questionmark.circle.fill', { key: 'sometimes' }),
@@ -557,8 +557,8 @@ function feedbackFor(question, selectedOptions, routeUpdated) {
   if (question.key === 'food_allergies') return ['FOOD CONSTRAINTS SAVED', 'Review ingredients and preparation before selecting a meal.'];
   if (question.key === 'diet_style') return ['MEAL PREFERENCES SAVED', 'Open a meal stop to review available options.'];
   if (question.key === 'gym_access') return ['WORKOUT OPTIONS UPDATED', 'Open your workout to review equipment and timing.'];
-  if (question.routeImpact === 'support_planning') return ['PREPARATION DETAILS SAVED', 'Review your upcoming preparation and shopping steps.'];
-  return ['SCHEDULE DETAILS SAVED', `${label}. Open your schedule to review the next stops.`];
+  if (question.routeImpact === 'support_planning') return ['PREPARATION SETTINGS SAVED', 'Review upcoming preparation and shopping tasks.'];
+  return ['SCHEDULE SETTINGS SAVED', `${label}. Review your next scheduled activities.`];
 }
 
 export async function answerRouteKnowledgeEncounter(client, {
@@ -568,15 +568,15 @@ export async function answerRouteKnowledgeEncounter(client, {
     `SELECT * FROM route_knowledge_encounters WHERE encounter_id=$1 AND user_id=$2 FOR UPDATE`,
     [encounterID, userID],
   );
-  if (!row.rowCount) throw new GameError('not_found', 'This route encounter no longer exists.');
+  if (!row.rowCount) throw new GameError('not_found', 'This scheduling question is no longer available.');
   const encounter = row.rows[0];
   if (encounter.status === 'answered') {
     return { result: encounter.answer_data?.result ?? null, dayPlanState: null, alreadyAnswered: true };
   }
-  if (!['offered', 'deferred'].includes(encounter.status)) throw new GameError('conflict', 'This route encounter is no longer answerable.');
+  if (!['offered', 'deferred'].includes(encounter.status)) throw new GameError('conflict', 'This scheduling question can no longer be answered.');
 
   const question = QUESTION_BY_KEY.get(String(encounter.question_key));
-  if (!question) throw new GameError('conflict', 'This route encounter uses an unsupported question version.');
+  if (!question) throw new GameError('conflict', 'This scheduling question is no longer supported.');
   const ids = [...new Set((Array.isArray(optionIDs) ? optionIDs : []).map(String))];
   if (!ids.length || ids.length > question.maxSelections) throw new GameError('invalid_payload', 'Choose a valid answer.');
   if (question.selectionMode === 'single' && ids.length !== 1) throw new GameError('invalid_payload', 'Choose one answer.');
@@ -652,6 +652,6 @@ export async function deferRouteKnowledgeEncounter(client, { userID, encounterID
       WHERE encounter_id=$1 AND user_id=$2 AND status='offered' RETURNING encounter_id`,
     [encounterID, userID, safeHours],
   );
-  if (!result.rowCount) throw new GameError('conflict', 'This route encounter can no longer be deferred.');
+  if (!result.rowCount) throw new GameError('conflict', 'This scheduling question can no longer be deferred.');
   return { encounterID, deferredHours: safeHours };
 }

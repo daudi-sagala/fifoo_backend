@@ -67,6 +67,8 @@ export const OUT = Object.freeze({
 
   roadInteraction: 'game:road:interaction',
   searchQuery: 'game:search:query',
+  catalogSearch: 'game:catalog:search',
+  catalogSuggestionCreate: 'game:catalog:suggestion:create',
 
   workoutCatalogRequest: 'game:play:workouts:request',
   requestPlayData: 'game:play:request',
